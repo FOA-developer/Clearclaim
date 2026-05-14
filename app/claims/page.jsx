@@ -9,7 +9,7 @@ export default function Claims() {
     fetch('/api/claims')
       .then(res => res.json())
       .then(data => {
-        setClaims(data);
+        setClaims(Array.isArray(data) ? data : []);
         setLoading(false);
       });
   }, []);
@@ -36,7 +36,7 @@ export default function Claims() {
               <tr key={row._id} style={{ borderBottom: '1px solid var(--surface-border)' }}>
                 <td style={{ padding: '1rem', fontFamily: 'monospace', fontSize: '0.8rem' }}>{row._id}</td>
                 <td style={{ padding: '1rem', fontFamily: 'monospace' }}>{row.transactionRef}</td>
-                <td style={{ padding: '1rem', fontWeight: 'bold' }}>₦{row.amount.toLocaleString()}</td>
+                <td style={{ padding: '1rem', fontWeight: 'bold' }}>₦{(row?.amount ?? 0).toLocaleString()}</td>
                 <td style={{ padding: '1rem' }}>
                   <span className={`badge ${row.analysis.verdict === 'PASS' ? 'badge-success' : row.analysis.verdict === 'FAIL' ? 'badge-danger' : 'badge-warning'}`}>
                     {row.analysis.verdict}

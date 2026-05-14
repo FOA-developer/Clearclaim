@@ -13,7 +13,7 @@ export default function SquadPayments() {
       fetch('/api/claims').then(res => res.json())
     ]).then(([balance, claims]) => {
       setBalanceData(balance);
-      setActivities(claims.slice(0, 10)); // Top 10 activities
+      setActivities(Array.isArray(claims) ? claims.slice(0, 10) : []);
       setLoading(false);
     });
   }, []);
@@ -28,14 +28,14 @@ export default function SquadPayments() {
         <div className="card glass" style={{ borderLeft: '4px solid var(--primary)' }}>
           <h3 style={{ color: '#8b949e', fontSize: '0.875rem' }}>Dynamic Ledger Balance</h3>
           <p style={{ fontSize: '2.5rem', fontWeight: 'bold' }}>
-            ₦{(balanceData.balance / 100).toLocaleString()}
+            ₦{((balanceData?.balance ?? 0) / 100).toLocaleString()}
           </p>
           <p style={{ color: '#8b949e', fontSize: '0.8rem' }}>Currency: {balanceData.currency}</p>
         </div>
         <div className="card glass" style={{ borderLeft: '4px solid var(--warning)' }}>
           <h3 style={{ color: '#8b949e', fontSize: '0.875rem' }}>Active Escrow (Held)</h3>
           <p style={{ fontSize: '2.5rem', fontWeight: 'bold' }}>
-            ₦{activities.reduce((acc, curr) => curr.status === 'HELD_IN_REVIEW' ? acc + curr.amount : acc, 0).toLocaleString()}
+            ₦{(activities?.reduce((acc, curr) => curr.status === 'HELD_IN_REVIEW' ? acc + (curr.amount || 0) : acc, 0) ?? 0).toLocaleString()}
           </p>
         </div>
       </div>
@@ -58,7 +58,7 @@ export default function SquadPayments() {
                 <td style={{ padding: '1rem' }}>
                   {row.status === 'PAID_OUT' ? 'Escrow Release' : row.status === 'REFUNDED' ? 'Refunded' : 'Escrow Hold'}
                 </td>
-                <td style={{ padding: '1rem', fontWeight: 'bold' }}>₦{row.amount.toLocaleString()}</td>
+                <td style={{ padding: '1rem', fontWeight: 'bold' }}>₦{(row?.amount ?? 0).toLocaleString()}</td>
                 <td style={{ padding: '1rem' }}>
                   <span className={`badge ${row.status === 'PAID_OUT' ? 'badge-success' : row.status === 'REFUNDED' ? 'badge-danger' : 'badge-warning'}`}>
                     {row.status}

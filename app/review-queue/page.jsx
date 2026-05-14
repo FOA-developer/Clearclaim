@@ -9,7 +9,7 @@ export default function ReviewQueue() {
     fetch('/api/claims?status=HELD_IN_REVIEW')
       .then(res => res.json())
       .then(data => {
-        setReviews(data);
+        setReviews(Array.isArray(data) ? data : []);
         setLoading(false);
       });
   }, []);
@@ -20,7 +20,7 @@ export default function ReviewQueue() {
     // Refresh list
     const res = await fetch('/api/claims?status=HELD_IN_REVIEW');
     const data = await res.json();
-    setReviews(data);
+    setReviews(Array.isArray(data) ? data : []);
     setLoading(false);
   };
 

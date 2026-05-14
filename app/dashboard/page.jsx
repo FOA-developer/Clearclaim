@@ -14,10 +14,19 @@ export default function Dashboard() {
     fetch('/api/stats')
       .then(res => res.json())
       .then(data => {
-        setStats(data);
+        if (data && !data.error) {
+          const sanitizedData = {
+            ...data,
+            recentActivity: Array.isArray(data.recentActivity) ? data.recentActivity : []
+          };
+          setStats(sanitizedData);
+        }
         setLoading(false);
       })
-      .catch(err => console.error('Failed to fetch stats', err));
+      .catch(err => {
+        console.error('Failed to fetch stats', err);
+        setLoading(false);
+      });
   }, []);
 
   if (loading) return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading Dashboard...</div>;
@@ -30,7 +39,7 @@ export default function Dashboard() {
         <div className="card glass">
           <h3 style={{ color: '#8b949e', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Processed</h3>
           <p style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--primary)' }}>
-            ₦{stats.totalAmount.toLocaleString()}
+            ₦{(stats?.totalAmount ?? 0).toLocaleString()}
           </p>
           <p style={{ color: 'var(--success)', fontSize: '0.875rem', marginTop: '0.5rem' }}>Live from Ledger</p>
         </div>
@@ -44,7 +53,7 @@ export default function Dashboard() {
         <div className="card glass">
           <h3 style={{ color: '#8b949e', fontSize: '0.875rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>In Escrow (Squad)</h3>
           <p style={{ fontSize: '2.5rem', fontWeight: 'bold', color: 'var(--warning)' }}>
-            ₦{stats.escrowAmount.toLocaleString()}
+            ₦{(stats?.escrowAmount ?? 0).toLocaleString()}
           </p>
           <p style={{ color: 'var(--warning)', fontSize: '0.875rem', marginTop: '0.5rem' }}>Awaiting clearance</p>
         </div>
@@ -65,7 +74,7 @@ export default function Dashboard() {
             {stats.recentActivity.length > 0 ? stats.recentActivity.map((row, i) => (
               <tr key={i} style={{ borderBottom: '1px solid var(--surface-border)' }}>
                 <td style={{ padding: '1rem', fontFamily: 'monospace' }}>{row.transactionRef}</td>
-                <td style={{ padding: '1rem' }}>₦{row.amount.toLocaleString()}</td>
+                <td style={{ padding: '1rem' }}>₦{(row?.amount ?? 0).toLocaleString()}</td>
                 <td style={{ padding: '1rem' }}>
                   <span className={`badge ${row.analysis.verdict === 'PASS' ? 'badge-success' : row.analysis.verdict === 'FAIL' ? 'badge-danger' : 'badge-warning'}`}>
                     {row.analysis.verdict}
