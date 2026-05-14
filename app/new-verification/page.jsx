@@ -1,29 +1,72 @@
-'use client';
 import { useState } from 'react';
+import Papa from 'papaparse';
 
 export default function NewVerification() {
-  const [status, setStatus] = useState('idle'); // idle, scanning, result
+  const [status, setStatus] = useState('idle'); // idle, mapping, scanning, result
   const [result, setResult] = useState(null);
   const [email, setEmail] = useState('');
   const [amount, setAmount] = useState('');
+  
+  // File data
+  const [csvData, setCsvData] = useState([]);
+  const [csvHeaders, setCsvHeaders] = useState([]);
+  const [mapping, setMapping] = useState({
+    name: '',
+    accountNumber: '',
+    amount: '',
+    attendanceDays: '',
+    expectedPay: ''
+  });
+
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        if (results.data && results.data.length > 0) {
+          const headers = Object.keys(results.data[0]);
+          setCsvHeaders(headers);
+          setCsvData(results.data);
+          setStatus('mapping');
+          
+          // Auto-mapping attempt
+          const newMapping = { ...mapping };
+          headers.forEach(h => {
+            const lower = h.toLowerCase();
+            if (lower.includes('name')) newMapping.name = h;
+            if (lower.includes('account') || lower.includes('acc')) newMapping.accountNumber = h;
+            if (lower.includes('amount') || lower.includes('pay')) newMapping.amount = h;
+            if (lower.includes('attendance') || lower.includes('days')) newMapping.attendanceDays = h;
+            if (lower.includes('expected')) newMapping.expectedPay = h;
+          });
+          setMapping(newMapping);
+        }
+      }
+    });
+  };
 
   const handleVerify = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setStatus('scanning');
 
-    // Sample data for the AI engine
-    // In a production app, this would come from a file upload parser
-    const sampleRecords = [
-      { name: 'Employee A', accountNumber: '0123456789', amount: amount * 0.6, attendanceDays: 20, expectedPay: amount * 0.6 },
-      { name: 'Employee B', accountNumber: '0123456789', amount: amount * 0.4, attendanceDays: 15, expectedPay: amount * 0.4 }
-    ];
+    // Map CSV data to expected format
+    const mappedRecords = csvData.map(row => ({
+      name: row[mapping.name] || 'N/A',
+      accountNumber: row[mapping.accountNumber] || '',
+      amount: parseFloat(row[mapping.amount]) || 0,
+      attendanceDays: parseInt(row[mapping.attendanceDays]) || 0,
+      expectedPay: parseFloat(row[mapping.expectedPay]) || 0
+    }));
 
     try {
       const response = await fetch('/api/verify/payroll', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          records: sampleRecords,
+          records: mappedRecords,
           email: email,
           amount: parseFloat(amount)
         })
@@ -45,7 +88,7 @@ export default function NewVerification() {
       
       {status === 'idle' && (
         <div className="card glass" style={{ maxWidth: '600px' }}>
-          <form onSubmit={handleVerify} style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+          <form style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
             <div>
               <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Recipient Email (for Squad)</label>
               <input 
@@ -71,16 +114,58 @@ export default function NewVerification() {
             </div>
 
             <div>
-              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Upload Payroll File (CSV/JSON)</label>
-              <div style={{ border: '2px dashed var(--surface-border)', padding: '2rem', textAlign: 'center', borderRadius: '8px', backgroundColor: 'rgba(22, 27, 34, 0.4)' }}>
-                <p style={{ color: '#8b949e' }}>Sample data will be used for the AI analysis in this simulation</p>
+              <label style={{ display: 'block', marginBottom: '0.5rem', fontWeight: 500 }}>Upload Payroll File (CSV)</label>
+              <div style={{ position: 'relative', border: '2px dashed var(--surface-border)', padding: '2rem', textAlign: 'center', borderRadius: '8px', backgroundColor: 'rgba(22, 27, 34, 0.4)' }}>
+                <input 
+                  type="file" 
+                  accept=".csv"
+                  onChange={handleFileChange}
+                  style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+                />
+                <p style={{ color: '#8b949e' }}>Click or drag CSV file here to start matching columns</p>
               </div>
             </div>
-            
-            <button type="submit" className="btn btn-primary" style={{ padding: '0.75rem', fontSize: '1.1rem' }}>
-              Verify & Initiate Escrow
-            </button>
           </form>
+        </div>
+      )}
+
+      {status === 'mapping' && (
+        <div className="card glass" style={{ maxWidth: '600px' }}>
+          <h2 style={{ fontSize: '1.5rem', marginBottom: '1rem' }}>Match Your Columns</h2>
+          <p style={{ color: '#8b949e', marginBottom: '1.5rem' }}>We detected {csvHeaders.length} columns. Please match them to our system fields:</p>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginBottom: '2rem' }}>
+            {Object.keys(mapping).map(field => (
+              <div key={field} style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', alignItems: 'center', gap: '1rem' }}>
+                <label style={{ textTransform: 'capitalize', color: '#8b949e' }}>{field.replace(/([A-Z])/g, ' $1')}:</label>
+                <select 
+                  className="input" 
+                  value={mapping[field]} 
+                  onChange={(e) => setMapping({ ...mapping, [field]: e.target.value })}
+                  style={{ padding: '0.5rem' }}
+                >
+                  <option value="">Select Column</option>
+                  {csvHeaders.map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </div>
+            ))}
+          </div>
+
+          <button 
+            onClick={handleVerify} 
+            className="btn btn-primary" 
+            style={{ width: '100%', padding: '0.75rem', fontSize: '1.1rem' }}
+            disabled={!mapping.name || !mapping.accountNumber || !mapping.amount}
+          >
+            Start AI Verification
+          </button>
+          <button 
+            onClick={() => setStatus('idle')} 
+            className="btn btn-outline" 
+            style={{ width: '100%', marginTop: '0.75rem' }}
+          >
+            Cancel
+          </button>
         </div>
       )}
 
