@@ -87,3 +87,22 @@
     transparent 70%
   );
 }
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+main {
+  animation: fadeIn 0.4s ease-in-out;
+}
+
+.shimmer {
+  background: linear-gradient(90deg, #f2ecf4 25%, #e6e0e9 50%, #f2ecf4 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
