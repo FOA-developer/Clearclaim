@@ -7,8 +7,8 @@ const navItems = [
   { href: '/dashboard', icon: 'dashboard', label: 'Dashboard' },
   { href: '/verify', icon: 'add_moderator', label: 'Verify' },
   { href: '/review', icon: 'rate_review', label: 'Review' },
-  { href: '/claims', icon: 'list_alt', label: 'Claims' },
-  { href: '/payments', icon: 'payments', label: 'Payments' },
+  { href: '/claim', icon: 'list_alt', label: 'Claims' },
+  { href: '/payment.js', icon: 'payments', label: 'Payments' },
 ]
 
 export default function BottomNav() {

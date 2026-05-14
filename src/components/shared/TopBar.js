@@ -1,9 +1,22 @@
+'use client'
+
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+
+const navItems = [
+  { href: '/dashboard', label: 'DASHBOARD' },
+  { href: '/verify',    label: 'VERIFY'    },
+  { href: '/review',    label: 'REVIEW'    },
+  { href: '/claim',     label: 'CLAIMS'    },
+  { href: '/payment.js',  label: 'PAYMENTS'  },
+]
 
 export default function TopBar() {
+  const pathname = usePathname()
+
   return (
     <header className="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-4 h-16 bg-surface border-b border-outline-variant">
-      
+
       {/* Logo */}
       <div className="flex items-center gap-2">
         <span
@@ -19,21 +32,22 @@ export default function TopBar() {
 
       {/* Desktop Nav Links — hidden on mobile */}
       <div className="hidden md:flex fixed top-0 right-20 h-16 items-center gap-8 z-[60]">
-        <Link href="/dashboard" className="text-on-surface-variant text-label-md hover:text-primary transition-colors">
-          DASHBOARD
-        </Link>
-        <Link href="/verify" className="text-primary text-label-md border-b-2 border-primary pt-1">
-          VERIFY
-        </Link>
-        <Link href="/review" className="text-on-surface-variant text-label-md hover:text-primary transition-colors">
-          REVIEW
-        </Link>
-        <Link href="/claims" className="text-on-surface-variant text-label-md hover:text-primary transition-colors">
-          CLAIMS
-        </Link>
-        <Link href="/payments" className="text-on-surface-variant text-label-md hover:text-primary transition-colors">
-          PAYMENTS
-        </Link>
+        {navItems.map(({ href, label }) => {
+          const isActive = pathname === href || pathname.startsWith(href + '/')
+          return (
+            <Link
+              key={href}
+              href={href}
+              className={`text-label-md transition-colors pt-1 ${
+                isActive
+                  ? 'text-primary border-b-2 border-primary'
+                  : 'text-on-surface-variant hover:text-primary'
+              }`}
+            >
+              {label}
+            </Link>
+          )
+        })}
       </div>
 
       {/* User Avatar */}
