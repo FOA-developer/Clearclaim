@@ -1,16 +1,42 @@
+'use client';
+import { useState, useEffect } from 'react';
+
 export default function SquadPayments() {
+  const [balanceData, setBalanceData] = useState({ balance: 0, currency: 'NGN' });
+  const [activities, setActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Fetch balance and recent activities
+    Promise.all([
+      fetch('/api/squad/balance').then(res => res.json()),
+      fetch('/api/claims').then(res => res.json())
+    ]).then(([balance, claims]) => {
+      setBalanceData(balance);
+      setActivities(claims.slice(0, 10)); // Top 10 activities
+      setLoading(false);
+    });
+  }, []);
+
+  if (loading) return <div style={{ padding: '2rem' }}>Syncing Ledger...</div>;
+
   return (
     <div className="animate-in fade-in duration-500">
       <h1 style={{ marginBottom: '2rem', fontSize: '2rem', fontWeight: 'bold' }}>Squad Ledger & Escrow</h1>
       
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem', marginBottom: '2rem' }}>
         <div className="card glass" style={{ borderLeft: '4px solid var(--primary)' }}>
-          <h3 style={{ color: '#8b949e', fontSize: '0.875rem' }}>Dynamic Virtual Accounts (Active)</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>14</p>
+          <h3 style={{ color: '#8b949e', fontSize: '0.875rem' }}>Dynamic Ledger Balance</h3>
+          <p style={{ fontSize: '2.5rem', fontWeight: 'bold' }}>
+            ₦{(balanceData.balance / 100).toLocaleString()}
+          </p>
+          <p style={{ color: '#8b949e', fontSize: '0.8rem' }}>Currency: {balanceData.currency}</p>
         </div>
         <div className="card glass" style={{ borderLeft: '4px solid var(--warning)' }}>
-          <h3 style={{ color: '#8b949e', fontSize: '0.875rem' }}>Total Escrow Balance</h3>
-          <p style={{ fontSize: '2rem', fontWeight: 'bold' }}>₦450,000</p>
+          <h3 style={{ color: '#8b949e', fontSize: '0.875rem' }}>Active Escrow (Held)</h3>
+          <p style={{ fontSize: '2.5rem', fontWeight: 'bold' }}>
+            ₦{activities.reduce((acc, curr) => curr.status === 'HELD_IN_REVIEW' ? acc + curr.amount : acc, 0).toLocaleString()}
+          </p>
         </div>
       </div>
 
@@ -26,22 +52,24 @@ export default function SquadPayments() {
             </tr>
           </thead>
           <tbody>
-            {[
-              { ref: 'SQ-ESC-892', action: 'Escrow Release to GTB (000013)', amount: '₦120,000', status: 'COMPLETED' },
-              { ref: 'SQ-REF-893', action: 'Refund to Origin', amount: '₦45,000', status: 'COMPLETED' },
-              { ref: 'SQ-ESC-894', action: 'Payment Initiation (Hold)', amount: '₦250,000', status: 'PENDING' },
-            ].map((row, i) => (
+            {activities.length > 0 ? activities.map((row, i) => (
               <tr key={i} style={{ borderBottom: '1px solid var(--surface-border)' }}>
-                <td style={{ padding: '1rem', fontFamily: 'monospace' }}>{row.ref}</td>
-                <td style={{ padding: '1rem' }}>{row.action}</td>
-                <td style={{ padding: '1rem', fontWeight: 'bold' }}>{row.amount}</td>
+                <td style={{ padding: '1rem', fontFamily: 'monospace' }}>{row.transactionRef}</td>
                 <td style={{ padding: '1rem' }}>
-                  <span className={`badge ${row.status === 'COMPLETED' ? 'badge-success' : 'badge-warning'}`}>
+                  {row.status === 'PAID_OUT' ? 'Escrow Release' : row.status === 'REFUNDED' ? 'Refunded' : 'Escrow Hold'}
+                </td>
+                <td style={{ padding: '1rem', fontWeight: 'bold' }}>₦{row.amount.toLocaleString()}</td>
+                <td style={{ padding: '1rem' }}>
+                  <span className={`badge ${row.status === 'PAID_OUT' ? 'badge-success' : row.status === 'REFUNDED' ? 'badge-danger' : 'badge-warning'}`}>
                     {row.status}
                   </span>
                 </td>
               </tr>
-            ))}
+            )) : (
+              <tr>
+                <td colSpan="4" style={{ padding: '2rem', textAlign: 'center', color: '#8b949e' }}>No ledger activity found.</td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
