@@ -1,26 +1,89 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+@theme {
+  /* Colors */
+  --color-surface-container-lowest: #ffffff;
+  --color-secondary-container: #e1d4fd;
+  --color-inverse-surface: #322f35;
+  --color-on-error-container: #93000a;
+  --color-outline: #7a7582;
+  --color-on-secondary-container: #645a7d;
+  --color-on-tertiary: #ffffff;
+  --color-error: #ba1a1a;
+  --color-primary: #4f378a;
+  --color-surface-bright: #fdf7ff;
+  --color-surface-container-high: #ece6ee;
+  --color-on-surface: #1d1b20;
+  --color-on-background: #1d1b20;
+  --color-surface-container-low: #f8f2fa;
+  --color-on-primary: #ffffff;
+  --color-secondary: #63597c;
+  --color-outline-variant: #cbc4d2;
+  --color-primary-container: #6750a4;
+  --color-surface-variant: #e6e0e9;
+  --color-surface-container-highest: #e6e0e9;
+  --color-surface-container: #f2ecf4;
+  --color-on-surface-variant: #494551;
+  --color-background: #fdf7ff;
+  --color-on-error: #ffffff;
+  --color-error-container: #ffdad6;
+  --color-surface-dim: #ded8e0;
+  --color-surface: #fdf7ff;
+  --color-on-secondary: #ffffff;
+
+  /* Border Radius */
+  --radius-DEFAULT: 0.25rem;
+  --radius-lg: 0.5rem;
+  --radius-xl: 0.75rem;
+  --radius-full: 9999px;
+
+  /* Spacing */
+  --spacing-stack-lg: 3rem;
+  --spacing-container-max: 1280px;
+  --spacing-stack-md: 1.5rem;
+  --spacing-margin-mobile: 1rem;
+  --spacing-gutter: 1.5rem;
+  --spacing-stack-sm: 0.5rem;
+
+  /* Font Family */
+  --font-sans: "Inter", sans-serif;
+
+  /* Font Sizes */
+  --text-headline-sm: 20px;
+  --text-headline-lg: 32px;
+  --text-body-md: 16px;
+  --text-headline-md: 24px;
+  --text-body-lg: 18px;
+  --text-body-sm: 14px;
+  --text-display-lg: 48px;
+  --text-label-md: 12px;
+  --text-headline-lg-mobile: 28px;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+/* Brand Gradient Classes */
+.brand-gradient {
+  background: linear-gradient(90deg, #7B1FA2 0%, #C2185B 50%, #F4511E 100%);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+.brand-gradient-text {
+  background: linear-gradient(90deg, #7B1FA2 0%, #C2185B 50%, #F4511E 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+.brand-gradient-border {
+  border-image: linear-gradient(90deg, #7B1FA2, #F4511E) 1;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+}
+
+.radial-glow {
+  background: radial-gradient(
+    circle at center,
+    rgba(123, 31, 162, 0.08) 0%,
+    rgba(244, 81, 30, 0.03) 50%,
+    transparent 70%
+  );
 }
