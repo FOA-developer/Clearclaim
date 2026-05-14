@@ -3,13 +3,12 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
-export default function CredentialForm() {
-  const router = useRouter()
+export default function CredentialForm({ onSubmit }) {
   const [certFile, setCertFile] = useState(null)
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    router.push('/verify/credential/scanning')
+    if (onSubmit) onSubmit()
   }
 
   return (

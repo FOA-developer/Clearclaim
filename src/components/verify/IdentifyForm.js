@@ -3,14 +3,13 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
-export default function IdentityForm() {
-  const router = useRouter()
+export default function IdentityForm({ onSubmit }) {
   const [faceFile, setFaceFile] = useState(null)
   const [idFile, setIdFile] = useState(null)
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    router.push('/verify/identity/scanning')
+    if (onSubmit) onSubmit()
   }
 
   return (

@@ -3,13 +3,12 @@
 import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 
-export default function PayrollForm() {
-  const router = useRouter()
+export default function PayrollForm({ onSubmit }) {
   const [rosterFile, setRosterFile] = useState(null)
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    router.push('/verify/payroll/scanning')
+    if (onSubmit) onSubmit()
   }
 
   return (
