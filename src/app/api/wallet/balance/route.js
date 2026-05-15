@@ -40,11 +40,20 @@ export async function GET(request) {
       throw AppError.forbidden('Complete onboarding to access wallet')
     }
 
-    const { data: virtualAccount } = await supabaseAdmin
-      .from('virtual_accounts')
-      .select('account_number, bank_code, customer_identifier')
-      .eq('company_id', profileResult.data.company_id)
-      .single()
+    const [vaResult, companyResult] = await Promise.all([
+      supabaseAdmin
+        .from('virtual_accounts')
+        .select('virtual_account_number, bank_code, customer_identifier')
+        .eq('company_id', profileResult.data.company_id)
+        .single(),
+      supabaseAdmin
+        .from('companies')
+        .select('name')
+        .eq('id', profileResult.data.company_id)
+        .single(),
+    ])
+
+    const virtualAccount = vaResult.data
 
     return NextResponse.json({
       balance: {
@@ -54,9 +63,10 @@ export async function GET(request) {
       },
       virtualAccount: virtualAccount
         ? {
-            accountNumber: virtualAccount.account_number,
+            accountNumber: virtualAccount.virtual_account_number,
             bankCode: virtualAccount.bank_code,
             bankName: 'GTBank',
+            accountName: companyResult.data?.name ?? null,
           }
         : null,
     })

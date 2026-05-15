@@ -643,6 +643,12 @@ function ReceiveModal({ onClose, virtualAccount, onAccountCreated }) {
                     </button>
                   </div>
                 </div>
+                {virtualAccount.accountName && (
+                  <div>
+                    <p className="text-[12px] text-[#9CA3AF] uppercase tracking-wider mb-1">Account Name</p>
+                    <p className="text-[15px] font-semibold text-[#111827]">{virtualAccount.accountName}</p>
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 p-3 bg-[#FFF7ED] border border-[#FED7AA] rounded-xl flex items-start gap-2.5">

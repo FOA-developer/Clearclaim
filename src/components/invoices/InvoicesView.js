@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   HiOutlinePlus,
   HiOutlineArrowUpTray,
@@ -15,131 +15,170 @@ import {
   HiOutlineSparkles,
   HiOutlineTrash,
   HiOutlinePencilSquare,
-  HiOutlineExclamationTriangle,
+  HiOutlineCurrencyDollar,
 } from 'react-icons/hi2'
 
-const DUMMY_INVOICES = [
-  {
-    id: 'INV-2401',
-    vendor: 'Apex Supplies Ltd',
-    amount: '₦2,450,000',
-    issueDate: 'May 1, 2026',
-    dueDate: 'May 31, 2026',
-    status: 'approved',
-    items: [
-      { description: 'Office furniture — desks x12', qty: 12, unitPrice: '₦150,000', total: '₦1,800,000' },
-      { description: 'Ergonomic chairs x12', qty: 12, unitPrice: '₦45,000', total: '₦540,000' },
-      { description: 'Delivery & installation', qty: 1, unitPrice: '₦110,000', total: '₦110,000' },
-    ],
-  },
-  {
-    id: 'INV-2402',
-    vendor: 'NovaTech Systems',
-    amount: '₦890,000',
-    issueDate: 'May 5, 2026',
-    dueDate: 'Jun 4, 2026',
-    status: 'pending',
-    items: [
-      { description: 'Cloud hosting — May 2026', qty: 1, unitPrice: '₦350,000', total: '₦350,000' },
-      { description: 'SSL certificates (annual)', qty: 5, unitPrice: '₦28,000', total: '₦140,000' },
-      { description: 'DevOps consulting — 20hrs', qty: 20, unitPrice: '₦20,000', total: '₦400,000' },
-    ],
-  },
-  {
-    id: 'INV-2403',
-    vendor: 'Meridian Logistics',
-    amount: '₦4,100,000',
-    issueDate: 'Apr 28, 2026',
-    dueDate: 'May 28, 2026',
-    status: 'approved',
-    items: [
-      { description: 'Freight — Lagos to Abuja', qty: 3, unitPrice: '₦800,000', total: '₦2,400,000' },
-      { description: 'Warehousing — April', qty: 1, unitPrice: '₦1,200,000', total: '₦1,200,000' },
-      { description: 'Insurance surcharge', qty: 1, unitPrice: '₦500,000', total: '₦500,000' },
-    ],
-  },
-  {
-    id: 'INV-2404',
-    vendor: 'Greenfield Agritech',
-    amount: '₦1,820,500',
-    issueDate: 'May 8, 2026',
-    dueDate: 'Jun 7, 2026',
-    status: 'pending',
-    items: [
-      { description: 'Fertilizer supply — 50 bags', qty: 50, unitPrice: '₦25,000', total: '₦1,250,000' },
-      { description: 'Seed packets — hybrid maize', qty: 100, unitPrice: '₦5,705', total: '₦570,500' },
-    ],
-  },
-  {
-    id: 'INV-2405',
-    vendor: 'Horizon Energy',
-    amount: '₦3,200,000',
-    issueDate: 'May 2, 2026',
-    dueDate: 'Jun 1, 2026',
-    status: 'rejected',
-    items: [
-      { description: 'Diesel supply — 5000L', qty: 5000, unitPrice: '₦400', total: '₦2,000,000' },
-      { description: 'Generator maintenance', qty: 1, unitPrice: '₦700,000', total: '₦700,000' },
-      { description: 'Emergency call-out', qty: 2, unitPrice: '₦250,000', total: '₦500,000' },
-    ],
-  },
-  {
-    id: 'INV-2406',
-    vendor: 'Zenith Cleaning Co.',
-    amount: '₦480,000',
-    issueDate: 'May 10, 2026',
-    dueDate: 'May 25, 2026',
-    status: 'approved',
-    items: [
-      { description: 'Office cleaning — May', qty: 1, unitPrice: '₦320,000', total: '₦320,000' },
-      { description: 'Deep carpet clean', qty: 1, unitPrice: '₦160,000', total: '₦160,000' },
-    ],
-  },
-]
+const FILTERS = ['All', 'Draft', 'Pending', 'Approved', 'Rejected', 'Paid']
 
-const statusConfig = {
-  approved: { label: 'Approved', icon: HiOutlineCheckCircle, cls: 'text-[#059669] bg-[#ECFDF5]' },
-  pending: { label: 'Pending', icon: HiOutlineClock, cls: 'text-[#D97706] bg-[#FFF7ED]' },
-  rejected: { label: 'Rejected', icon: HiOutlineXCircle, cls: 'text-[#DC2626] bg-[#FEF2F2]' },
+function formatNaira(amount) {
+  const n = Number(amount)
+  if (Number.isNaN(n)) return '—'
+  return new Intl.NumberFormat('en-NG', {
+    style: 'currency',
+    currency: 'NGN',
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  }).format(n)
 }
 
-const FILTERS = ['All', 'Pending', 'Approved', 'Rejected']
+function formatDisplayDate(iso) {
+  if (!iso) return '—'
+  const d = new Date(`${iso}T12:00:00`)
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** Client-side totals mirror POST /api/invoices */
+function computePreview(items, discount, whtRate) {
+  let subtotal = 0
+  let vatAmount = 0
+  for (const item of items) {
+    const lineSub = Number(item.quantity || 0) * Number(item.unitPrice || 0)
+    const vat =
+      item.vatApplicable !== false ? lineSub * (Number(item.vatRate ?? 7.5) / 100) : 0
+    subtotal += lineSub
+    vatAmount += vat
+  }
+  const d = Number(discount || 0)
+  const wht = subtotal * (Number(whtRate || 0) / 100)
+  const grandTotal = subtotal - d + vatAmount
+  const netPayable = grandTotal - wht
+  return { subtotal, vatAmount, grandTotal, netPayable, wht }
+}
+
+function filterToStatusParam(label) {
+  if (label === 'All') return ''
+  return label.toLowerCase()
+}
 
 export default function InvoicesView() {
-  const [invoices, setInvoices] = useState(DUMMY_INVOICES)
   const [filter, setFilter] = useState('All')
   const [search, setSearch] = useState('')
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [invoices, setInvoices] = useState([])
+  const [pagination, setPagination] = useState({ page: 1, limit: 20, total: 0, totalPages: 0 })
+  const [statusCounts, setStatusCounts] = useState(null)
+  const [listLoading, setListLoading] = useState(true)
+  const [listError, setListError] = useState('')
+
   const [uploadOpen, setUploadOpen] = useState(false)
   const [manualOpen, setManualOpen] = useState(false)
-  const [detailInvoice, setDetailInvoice] = useState(null)
+  const [detailId, setDetailId] = useState(null)
+  const [detailDoc, setDetailDoc] = useState(null)
+  const [detailLoading, setDetailLoading] = useState(false)
 
-  const filtered = invoices.filter((inv) => {
-    const matchFilter = filter === 'All' || inv.status === filter.toLowerCase()
-    const matchSearch = !search || inv.vendor.toLowerCase().includes(search.toLowerCase()) || inv.id.toLowerCase().includes(search.toLowerCase())
-    return matchFilter && matchSearch
-  })
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 350)
+    return () => clearTimeout(t)
+  }, [search])
 
-  const counts = {
-    All: invoices.length,
-    Pending: invoices.filter((i) => i.status === 'pending').length,
-    Approved: invoices.filter((i) => i.status === 'approved').length,
-    Rejected: invoices.filter((i) => i.status === 'rejected').length,
-  }
+  useEffect(() => {
+    setPage(1)
+  }, [filter, debouncedSearch])
 
-  function handleNewInvoice(inv) {
-    setInvoices((prev) => [inv, ...prev])
+  const loadList = useCallback(async () => {
+    setListLoading(true)
+    setListError('')
+    try {
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: '20',
+        includeCounts: '1',
+      })
+      const st = filterToStatusParam(filter)
+      if (st) params.set('status', st)
+      if (debouncedSearch) params.set('search', debouncedSearch)
+
+      const res = await fetch(`/api/invoices?${params}`, { credentials: 'include' })
+      const json = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        throw new Error(json?.error?.message ?? `Request failed (${res.status})`)
+      }
+
+      setInvoices(json.invoices ?? [])
+      setPagination(json.pagination ?? { page: 1, limit: 20, total: 0, totalPages: 0 })
+      if (json.statusCounts) setStatusCounts(json.statusCounts)
+    } catch (e) {
+      setListError(e.message ?? 'Failed to load invoices')
+      setInvoices([])
+    } finally {
+      setListLoading(false)
+    }
+  }, [page, filter, debouncedSearch])
+
+  useEffect(() => {
+    loadList()
+  }, [loadList])
+
+  const counts = useMemo(() => {
+    if (statusCounts) {
+      return {
+        All: statusCounts.all ?? 0,
+        Draft: statusCounts.draft ?? 0,
+        Pending: statusCounts.pending ?? 0,
+        Approved: statusCounts.approved ?? 0,
+        Rejected: statusCounts.rejected ?? 0,
+        Paid: statusCounts.paid ?? 0,
+      }
+    }
+    return {
+      All: invoices.length,
+      Draft: 0,
+      Pending: 0,
+      Approved: 0,
+      Rejected: 0,
+      Paid: 0,
+    }
+  }, [statusCounts, invoices.length])
+
+  const openDetail = useCallback(async (id) => {
+    setDetailId(id)
+    setDetailDoc(null)
+    setDetailLoading(true)
+    try {
+      const res = await fetch(`/api/invoices/${id}`, { credentials: 'include' })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(json?.error?.message ?? 'Could not load invoice')
+      setDetailDoc(json)
+    } catch (e) {
+      setDetailDoc({ _error: e.message ?? 'Error' })
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
+
+  const refreshDetail = useCallback(async () => {
+    if (detailId) await openDetail(detailId)
+  }, [detailId, openDetail])
+
+  function closeDetail() {
+    setDetailId(null)
+    setDetailDoc(null)
   }
 
   return (
     <div className="space-y-6 max-w-[1400px]">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-[16px] font-semibold text-[#111827]">Invoices</h2>
-          <p className="text-[13px] text-[#6B7280]">Manage vendor invoices, upload PDFs for OCR extraction</p>
+          <p className="text-[13px] text-[#6B7280]">
+            FIRS-style invoices with VAT, withholding tax & compliance fields
+          </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
+            type="button"
             onClick={() => setUploadOpen(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-white border border-[#D1D5DB] text-[14px] font-medium text-[#374151] rounded-xl hover:bg-[#F9FAFB] transition-colors"
           >
@@ -147,6 +186,7 @@ export default function InvoicesView() {
             Upload PDF
           </button>
           <button
+            type="button"
             onClick={() => setManualOpen(true)}
             className="flex items-center gap-2 px-4 py-2.5 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all"
           >
@@ -156,14 +196,14 @@ export default function InvoicesView() {
         </div>
       </div>
 
-      {/* Filters + search */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex items-center gap-1 bg-[#F3F4F6] rounded-lg p-1">
+        <div className="flex items-center gap-1 bg-[#F3F4F6] rounded-lg p-1 flex-wrap">
           {FILTERS.map((f) => (
             <button
               key={f}
+              type="button"
               onClick={() => setFilter(f)}
-              className={`px-3 py-1.5 text-[13px] font-medium rounded-md transition-colors ${
+              className={`px-3 py-1.5 text-[13px] font-medium rounded-md transition-colors whitespace-nowrap ${
                 filter === f ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'
               }`}
             >
@@ -176,7 +216,7 @@ export default function InvoicesView() {
             <HiOutlineMagnifyingGlass size={16} className="text-[#9CA3AF]" />
             <input
               type="text"
-              placeholder="Search invoices..."
+              placeholder="Search invoice number…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="bg-transparent text-[13px] text-[#111827] placeholder:text-[#9CA3AF] outline-none w-full"
@@ -185,116 +225,311 @@ export default function InvoicesView() {
         </div>
       </div>
 
+      {listError ? (
+        <div className="px-5 py-4 rounded-xl bg-[#FEF2F2] border border-[#FECACA] text-[14px] text-[#B91C1C]">
+          {listError}{' '}
+          <button type="button" onClick={() => loadList()} className="underline ml-2">
+            Retry
+          </button>
+        </div>
+      ) : null}
+
       {/* Invoice list */}
-      <div className="bg-white rounded-xl border border-[#E5E7EB]">
-        {/* Desktop table */}
-        <div className="hidden md:block overflow-x-auto">
-          <table className="w-full">
-            <thead>
+      <div className="bg-white rounded-xl border border-[#E5E7EB] flex flex-col overflow-hidden">
+        {/* Desktop: scrollable body so long lists scroll inside max height */}
+        <div className="hidden md:block invoice-table-scroll min-h-[280px] max-h-[min(520px,calc(100vh-16rem))] overflow-y-auto">
+          <div className="overflow-x-auto invoice-table-scroll">
+          <table className="w-full caption-bottom border-collapse">
+            <thead className="sticky top-0 z-[1] bg-white shadow-[0_1px_0_0_#f3f4f6]">
               <tr className="border-b border-[#F3F4F6]">
-                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Invoice</th>
-                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Vendor</th>
-                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Issue Date</th>
-                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Due Date</th>
-                <th className="text-right text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Amount</th>
-                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Status</th>
-                <th className="text-right text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Actions</th>
+                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">
+                  Invoice
+                </th>
+                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">
+                  Buyer / vendor
+                </th>
+                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">
+                  Issue
+                </th>
+                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">
+                  Due
+                </th>
+                <th className="text-right text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">
+                  Net payable
+                </th>
+                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">
+                  Status
+                </th>
+                <th className="text-right text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((inv) => {
-                const cfg = statusConfig[inv.status]
-                const StatusIcon = cfg.icon
-                return (
-                  <tr key={inv.id} className="border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors">
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-lg bg-[#F3F0FF] flex items-center justify-center">
-                          <HiOutlineDocumentText size={18} className="text-primary" />
-                        </div>
-                        <span className="text-[14px] font-semibold text-[#111827]">{inv.id}</span>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-[14px] text-[#374151]">{inv.vendor}</td>
-                    <td className="px-5 py-4 text-[13px] text-[#6B7280]">{inv.issueDate}</td>
-                    <td className="px-5 py-4 text-[13px] text-[#6B7280]">{inv.dueDate}</td>
-                    <td className="px-5 py-4 text-right text-[14px] font-semibold text-[#111827]">{inv.amount}</td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[12px] font-medium ${cfg.cls}`}>
-                        <StatusIcon size={14} />
-                        {cfg.label}
-                      </span>
-                    </td>
-                    <td className="px-5 py-4 text-right">
-                      <button
-                        onClick={() => setDetailInvoice(inv)}
-                        className="p-2 rounded-lg hover:bg-[#F3F4F6] transition-colors text-[#6B7280] hover:text-primary"
-                        title="View details"
-                      >
-                        <HiOutlineEye size={18} />
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
-              {filtered.length === 0 && (
+              {listLoading && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-12 text-center text-[14px] text-[#9CA3AF]">
+                  <td
+                    colSpan={7}
+                    className="px-5 text-center align-middle text-[14px] text-[#9CA3AF] min-h-[420px] h-[420px]"
+                  >
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {!listLoading &&
+                invoices.map((inv) => {
+                  const buyerName = inv.buyer?.businessName ?? '—'
+                  const cfg = statusUi(inv.status)
+                  const StatusIcon = cfg.icon
+                  return (
+                    <tr
+                      key={inv.id}
+                      className="border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors"
+                    >
+                      <td className="px-5 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-lg bg-[#F3F0FF] flex items-center justify-center">
+                            <HiOutlineDocumentText size={18} className="text-primary" />
+                          </div>
+                          <span className="text-[14px] font-semibold text-[#111827]">{inv.invoice_number}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-4 text-[14px] text-[#374151]">{buyerName}</td>
+                      <td className="px-5 py-4 text-[13px] text-[#6B7280]">
+                        {formatDisplayDate(inv.invoice_date)}
+                      </td>
+                      <td className="px-5 py-4 text-[13px] text-[#6B7280]">
+                        {formatDisplayDate(inv.due_date)}
+                      </td>
+                      <td className="px-5 py-4 text-right text-[14px] font-semibold text-[#111827]">
+                        {formatNaira(inv.net_payable ?? inv.grand_total)}
+                      </td>
+                      <td className="px-5 py-4">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[12px] font-medium ${cfg.cls}`}
+                        >
+                          <StatusIcon size={14} />
+                          {cfg.label}
+                        </span>
+                      </td>
+                      <td className="px-5 py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => openDetail(inv.id)}
+                          className="p-2 rounded-lg hover:bg-[#F3F4F6] transition-colors text-[#6B7280] hover:text-primary inline-flex"
+                          title="View details"
+                        >
+                          <HiOutlineEye size={18} />
+                        </button>
+                      </td>
+                    </tr>
+                  )
+                })}
+              {!listLoading && invoices.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="px-5 text-center align-middle text-[14px] text-[#9CA3AF] min-h-[420px] h-[420px]"
+                  >
                     No invoices match your filters
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
-        {/* Mobile list */}
-        <div className="md:hidden divide-y divide-[#F3F4F6]">
-          {filtered.map((inv) => {
-            const cfg = statusConfig[inv.status]
-            const StatusIcon = cfg.icon
-            return (
-              <button key={inv.id} onClick={() => setDetailInvoice(inv)} className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#F9FAFB] transition-colors">
-                <div className="w-9 h-9 rounded-lg bg-[#F3F0FF] flex items-center justify-center shrink-0">
-                  <HiOutlineDocumentText size={18} className="text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[14px] font-medium text-[#111827] truncate">{inv.vendor}</p>
-                  <p className="text-[12px] text-[#9CA3AF]">{inv.id} &middot; Due {inv.dueDate}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[14px] font-semibold text-[#111827]">{inv.amount}</p>
-                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${cfg.cls}`}>
-                    <StatusIcon size={12} />
-                    {cfg.label}
-                  </span>
-                </div>
-              </button>
-            )
-          })}
-          {filtered.length === 0 && (
-            <div className="px-5 py-12 text-center text-[14px] text-[#9CA3AF]">No invoices match your filters</div>
+        {/* Mobile */}
+        <div className="md:hidden invoice-table-scroll min-h-[240px] max-h-[min(480px,calc(100vh-14rem))] overflow-y-auto divide-y divide-[#F3F4F6]">
+          {listLoading && (
+            <div className="flex items-center justify-center min-h-[320px] px-5 text-[14px] text-[#9CA3AF]">
+              Loading…
+            </div>
+          )}
+          {!listLoading &&
+            invoices.map((inv) => {
+              const cfg = statusUi(inv.status)
+              const StatusIcon = cfg.icon
+              return (
+                <button
+                  key={inv.id}
+                  type="button"
+                  onClick={() => openDetail(inv.id)}
+                  className="w-full flex items-center gap-3 px-5 py-4 text-left hover:bg-[#F9FAFB] transition-colors"
+                >
+                  <div className="w-9 h-9 rounded-lg bg-[#F3F0FF] flex items-center justify-center shrink-0">
+                    <HiOutlineDocumentText size={18} className="text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[14px] font-medium text-[#111827] truncate">
+                      {inv.buyer?.businessName ?? inv.invoice_number}
+                    </p>
+                    <p className="text-[12px] text-[#9CA3AF]">
+                      {inv.invoice_number} · Due {formatDisplayDate(inv.due_date)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[14px] font-semibold text-[#111827]">
+                      {formatNaira(inv.net_payable ?? inv.grand_total)}
+                    </p>
+                    <span
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${cfg.cls}`}
+                    >
+                      <StatusIcon size={12} />
+                      {cfg.label}
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+          {!listLoading && invoices.length === 0 && (
+            <div className="flex items-center justify-center min-h-[320px] px-5 text-[14px] text-[#9CA3AF]">
+              No invoices match your filters
+            </div>
           )}
         </div>
+
+        {!listLoading && (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 px-5 py-3 border-t border-[#F3F4F6] bg-[#FAFAFA]/80 shrink-0">
+            {(() => {
+              const total = pagination.total ?? 0
+              const limit = pagination.limit ?? 20
+              const tpRaw = pagination.totalPages ?? 0
+              const tp = tpRaw > 0 ? tpRaw : 1
+              const from = total === 0 ? 0 : (page - 1) * limit + 1
+              const to = Math.min(page * limit, total)
+              const canPrev =
+                typeof pagination.hasPrevPage === 'boolean'
+                  ? pagination.hasPrevPage
+                  : page > 1 && total > 0 && tpRaw > 0
+              const canNext =
+                typeof pagination.hasNextPage === 'boolean'
+                  ? pagination.hasNextPage
+                  : total > 0 && tpRaw > 0 && page < tpRaw
+              return (
+                <>
+                  <p className="text-[13px] text-[#6B7280] order-2 sm:order-1">
+                    {total === 0 ? (
+                      <>
+                        Showing <span className="font-medium text-[#374151]">0</span> invoices
+                      </>
+                    ) : (
+                      <>
+                        Showing{' '}
+                        <span className="font-medium text-[#374151]">
+                          {from}–{to}
+                        </span>{' '}
+                        of <span className="font-medium text-[#374151]">{total}</span>
+                      </>
+                    )}
+                  </p>
+                  <div className="flex items-center gap-3 order-1 sm:order-2">
+                    <p className="text-[13px] text-[#6B7280] whitespace-nowrap">
+                      Page <span className="font-medium text-[#374151]">{page}</span> of{' '}
+                      <span className="font-medium text-[#374151]">{tp}</span>
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={!canPrev || listLoading}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        className="px-3 py-1.5 text-[13px] font-medium rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB] disabled:opacity-40 disabled:hover:bg-white transition-colors"
+                      >
+                        Previous
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canNext || listLoading}
+                        onClick={() => setPage((p) => p + 1)}
+                        className="px-3 py-1.5 text-[13px] font-medium rounded-lg border border-[#E5E7EB] bg-white hover:bg-[#F9FAFB] disabled:opacity-40 disabled:hover:bg-white transition-colors"
+                      >
+                        Next
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )
+            })()}
+          </div>
+        )}
       </div>
 
-      {/* Modals */}
-      {uploadOpen && <UploadModal onClose={() => setUploadOpen(false)} onAdd={handleNewInvoice} />}
-      {manualOpen && <ManualInvoiceModal onClose={() => setManualOpen(false)} onAdd={handleNewInvoice} />}
-      {detailInvoice && <InvoiceDetail invoice={detailInvoice} onClose={() => setDetailInvoice(null)} />}
+      {uploadOpen && (
+        <UploadModal
+          onClose={() => setUploadOpen(false)}
+          onCreated={async () => {
+            await loadList()
+          }}
+        />
+      )}
+      {manualOpen && (
+        <ManualInvoiceModal
+          onClose={() => setManualOpen(false)}
+          onCreated={async () => {
+            setManualOpen(false)
+            await loadList()
+          }}
+        />
+      )}
+      {detailId && (
+        <InvoiceDetailDrawer
+          loading={detailLoading}
+          doc={detailDoc}
+          onClose={closeDetail}
+          refreshList={loadList}
+          refreshDetail={refreshDetail}
+        />
+      )}
     </div>
   )
 }
 
-/* ── Upload PDF Modal with dummy OCR ─────────────────────────────── */
+function statusUi(status) {
+  const draft = {
+    label: 'Draft',
+    icon: HiOutlinePencilSquare,
+    cls: 'text-[#4B5563] bg-[#F3F4F6]',
+  }
+  const map = {
+    approved: {
+      label: 'Approved',
+      icon: HiOutlineCheckCircle,
+      cls: 'text-[#059669] bg-[#ECFDF5]',
+    },
+    pending: {
+      label: 'Pending',
+      icon: HiOutlineClock,
+      cls: 'text-[#D97706] bg-[#FFF7ED]',
+    },
+    rejected: {
+      label: 'Rejected',
+      icon: HiOutlineXCircle,
+      cls: 'text-[#DC2626] bg-[#FEF2F2]',
+    },
+    paid: {
+      label: 'Paid',
+      icon: HiOutlineCurrencyDollar,
+      cls: 'text-[#2563EB] bg-[#EFF6FF]',
+    },
+    draft,
+  }
+  return map[status] ?? draft
+}
 
-function UploadModal({ onClose, onAdd }) {
+/* ── Upload ──────────────────────────────────────────────────────── */
+
+function UploadModal({ onClose, onCreated }) {
   const [file, setFile] = useState(null)
   const [dragActive, setDragActive] = useState(false)
   const [extracting, setExtracting] = useState(false)
-  const [extracted, setExtracted] = useState(null)
+  const [suggested, setSuggested] = useState(null)
+  const [extractError, setExtractError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   function handleFile(f) {
+    setSuggested(null)
+    setExtractError('')
     setFile(f)
   }
 
@@ -305,53 +540,84 @@ function UploadModal({ onClose, onAdd }) {
     if (f) handleFile(f)
   }
 
-  function handleExtract() {
+  async function handleExtract() {
+    if (!file) return
     setExtracting(true)
-    setTimeout(() => {
-      setExtracted({
-        id: `INV-${2500 + Math.floor(Math.random() * 100)}`,
-        vendor: 'Extracted Vendor Ltd',
-        amount: '₦1,750,000',
-        issueDate: 'May 14, 2026',
-        dueDate: 'Jun 13, 2026',
-        status: 'pending',
-        items: [
-          { description: 'Professional services — Q2', qty: 1, unitPrice: '₦1,200,000', total: '₦1,200,000' },
-          { description: 'Material costs', qty: 1, unitPrice: '₦400,000', total: '₦400,000' },
-          { description: 'Admin fee', qty: 1, unitPrice: '₦150,000', total: '₦150,000' },
-        ],
-      })
+    setExtractError('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/invoices/extract', { method: 'POST', body: fd, credentials: 'include' })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(json?.error?.message ?? 'Extract failed')
+      setSuggested(json.suggestedCreateBody)
+    } catch (e) {
+      setExtractError(e.message ?? 'Extract failed')
+    } finally {
       setExtracting(false)
-    }, 2500)
+    }
   }
 
-  function handleConfirm() {
-    if (extracted) {
-      onAdd(extracted)
+  async function handleConfirmSave() {
+    if (!suggested) return
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(suggested),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(json?.error?.message ?? 'Could not save')
+      await onCreated()
       onClose()
+    } catch (e) {
+      setExtractError(e.message ?? 'Save failed')
+    } finally {
+      setSubmitting(false)
     }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div
+      role="presentation"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        className="bg-white rounded-2xl w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
           <h3 className="text-[17px] font-semibold text-[#111827]">Upload Invoice PDF</h3>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F3F4F6] transition-colors">
+          <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F3F4F6]">
             <HiOutlineXMark size={20} className="text-[#6B7280]" />
           </button>
         </div>
 
         <div className="p-6 space-y-5">
-          {!extracted ? (
+          {extractError && (
+            <div className="text-[13px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] px-3 py-2 rounded-lg">
+              {extractError}
+            </div>
+          )}
+          {!suggested ? (
             <>
-              {/* Drop zone */}
               <div
-                onDragOver={(e) => { e.preventDefault(); setDragActive(true) }}
+                onDragOver={(e) => {
+                  e.preventDefault()
+                  setDragActive(true)
+                }}
                 onDragLeave={() => setDragActive(false)}
                 onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
-                  dragActive ? 'border-primary bg-[#F3F0FF]' : file ? 'border-[#059669] bg-[#ECFDF5]' : 'border-[#D1D5DB] hover:border-[#9CA3AF]'
+                className={`relative border-2 border-dashed rounded-xl p-8 text-center transition-colors ${
+                  dragActive
+                    ? 'border-primary bg-[#F3F0FF]'
+                    : file
+                      ? 'border-[#059669] bg-[#ECFDF5]'
+                      : 'border-[#D1D5DB] hover:border-[#9CA3AF]'
                 }`}
               >
                 {file ? (
@@ -359,83 +625,67 @@ function UploadModal({ onClose, onAdd }) {
                     <HiOutlineDocumentArrowUp size={32} className="text-[#059669]" />
                     <p className="text-[14px] font-medium text-[#111827]">{file.name}</p>
                     <p className="text-[12px] text-[#6B7280]">{(file.size / 1024).toFixed(1)} KB</p>
-                    <button onClick={() => setFile(null)} className="text-[13px] text-[#DC2626] hover:underline mt-1">Remove</button>
+                    <button type="button" onClick={() => setFile(null)} className="text-[13px] text-[#DC2626] hover:underline mt-1">
+                      Remove
+                    </button>
                   </div>
                 ) : (
-                  <div className="flex flex-col items-center gap-2">
+                  <label className="flex flex-col items-center gap-2 cursor-pointer pointer-events-none">
                     <HiOutlineArrowUpTray size={32} className="text-[#9CA3AF]" />
-                    <p className="text-[14px] font-medium text-[#111827]">Drop your PDF here</p>
-                    <p className="text-[13px] text-[#9CA3AF]">or click to browse</p>
-                    <input
-                      type="file"
-                      accept=".pdf"
-                      onChange={(e) => handleFile(e.target.files?.[0])}
-                      className="absolute inset-0 opacity-0 cursor-pointer"
-                      style={{ position: 'absolute' }}
-                    />
-                  </div>
+                    <p className="text-[14px] font-medium text-[#111827] pointer-events-none">Drop your PDF here</p>
+                    <p className="text-[13px] text-[#9CA3AF] pointer-events-none">or browse</p>
+                  </label>
                 )}
+                <input
+                  type="file"
+                  accept=".pdf,application/pdf"
+                  onChange={(e) => handleFile(e.target.files?.[0])}
+                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                />
               </div>
 
-              {/* Extract button */}
               <button
-                onClick={handleExtract}
+                type="button"
+                onClick={() => handleExtract()}
                 disabled={!file || extracting}
-                className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40"
+                className="w-full flex items-center justify-center gap-2 py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 disabled:opacity-40"
               >
                 {extracting ? (
                   <>
-                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none" aria-hidden>
                       <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                       <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                     </svg>
-                    Extracting data with OCR...
+                    Extracting with AI…
                   </>
                 ) : (
                   <>
                     <HiOutlineSparkles size={18} />
-                    Extract Invoice Data
+                    Extract invoice data
                   </>
                 )}
               </button>
             </>
           ) : (
             <>
-              {/* Extracted preview */}
               <div className="flex items-center gap-2 p-3 bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl">
                 <HiOutlineCheckCircle size={20} className="text-[#059669]" />
-                <p className="text-[13px] text-[#065F46] font-medium">Data extracted successfully from PDF</p>
+                <p className="text-[13px] text-[#065F46] font-medium">Review extracted invoice data before saving</p>
               </div>
-
-              <div className="space-y-3">
-                <ExtractedField label="Invoice ID" value={extracted.id} />
-                <ExtractedField label="Vendor" value={extracted.vendor} />
-                <ExtractedField label="Amount" value={extracted.amount} />
-                <ExtractedField label="Issue Date" value={extracted.issueDate} />
-                <ExtractedField label="Due Date" value={extracted.dueDate} />
-              </div>
-
-              <div>
-                <p className="text-[12px] font-medium text-[#9CA3AF] uppercase tracking-wider mb-2">Line Items</p>
-                <div className="space-y-2">
-                  {extracted.items.map((item, i) => (
-                    <div key={i} className="flex items-center justify-between p-3 bg-[#F9FAFB] rounded-lg">
-                      <div>
-                        <p className="text-[13px] font-medium text-[#111827]">{item.description}</p>
-                        <p className="text-[12px] text-[#9CA3AF]">Qty: {item.qty} &times; {item.unitPrice}</p>
-                      </div>
-                      <p className="text-[13px] font-semibold text-[#111827]">{item.total}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
+              <pre className="max-h-48 overflow-auto text-[11px] bg-[#F9FAFB] rounded-lg p-3 border border-[#E5E7EB] text-[#374151]">
+                {JSON.stringify(suggested, null, 2)}
+              </pre>
               <div className="flex gap-3">
-                <button onClick={onClose} className="flex-1 py-3 border border-[#D1D5DB] text-[14px] font-medium text-[#374151] rounded-xl hover:bg-[#F9FAFB] transition-colors">
-                  Cancel
+                <button type="button" onClick={() => setSuggested(null)} className="flex-1 py-3 border border-[#D1D5DB] text-[14px] font-medium rounded-xl">
+                  Back
                 </button>
-                <button onClick={handleConfirm} className="flex-1 py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all">
-                  Confirm & Save
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={handleConfirmSave}
+                  className="flex-1 py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 disabled:opacity-40"
+                >
+                  {submitting ? 'Saving…' : 'Confirm & save'}
                 </button>
               </div>
             </>
@@ -446,189 +696,676 @@ function UploadModal({ onClose, onAdd }) {
   )
 }
 
-function ExtractedField({ label, value }) {
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-[#F3F4F6]">
-      <span className="text-[13px] text-[#6B7280]">{label}</span>
-      <span className="text-[14px] font-medium text-[#111827]">{value}</span>
-    </div>
-  )
-}
+const emptyBuyer = () => ({
+  type: 'business',
+  businessName: '',
+  contactPerson: '',
+  tin: '',
+  address: {
+    street: '',
+    city: '',
+    state: '',
+    country: 'Nigeria',
+    postalCode: '',
+  },
+  contact: { email: '', phone: '' },
+})
 
-/* ── Manual Invoice Modal ────────────────────────────────────────── */
+const emptyItem = () => ({
+  description: '',
+  quantity: 1,
+  unit: 'unit',
+  unitPrice: 0,
+  vatApplicable: true,
+  vatRate: 7.5,
+})
 
-function ManualInvoiceModal({ onClose, onAdd }) {
-  const [vendor, setVendor] = useState('')
-  const [amount, setAmount] = useState('')
+/* ── Create invoice modal ───────────────────────────────────────── */
+
+function ManualInvoiceModal({ onClose, onCreated }) {
+  const today = new Date().toISOString().slice(0, 10)
+
+  const [invoiceDate, setInvoiceDate] = useState(today)
   const [dueDate, setDueDate] = useState('')
-  const [description, setDescription] = useState('')
+  const [purchaseOrderNumber, setPo] = useState('')
+  const [buyer, setBuyer] = useState(emptyBuyer)
+  const [items, setItems] = useState([emptyItem(), emptyItem()])
+  const [paymentTerms, setPaymentTerms] = useState('Payment due within 7 days')
+  const [discount, setDiscount] = useState(0)
+  const [withholdingTaxRate, setWht] = useState(0)
+  const [requiresSignature, setRequiresSignature] = useState(false)
+  const [signedBy, setSignedBy] = useState('')
+  const [initialStatus, setInitialStatus] = useState('pending')
+  const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState('')
 
-  function handleSubmit(e) {
-    e.preventDefault()
-    onAdd({
-      id: `INV-${2500 + Math.floor(Math.random() * 100)}`,
-      vendor: vendor || 'Unknown Vendor',
-      amount: `₦${Number(amount || 0).toLocaleString()}`,
-      issueDate: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      dueDate: dueDate || 'TBD',
-      status: 'pending',
-      items: [
-        { description: description || 'Services rendered', qty: 1, unitPrice: `₦${Number(amount || 0).toLocaleString()}`, total: `₦${Number(amount || 0).toLocaleString()}` },
-      ],
+  const preview = useMemo(() => computePreview(items, discount, withholdingTaxRate), [
+    items,
+    discount,
+    withholdingTaxRate,
+  ])
+
+  useEffect(() => {
+    if (!dueDate && invoiceDate) {
+      const d = new Date(`${invoiceDate}T12:00:00`)
+      d.setDate(d.getDate() + 7)
+      setDueDate(d.toISOString().slice(0, 10))
+    }
+  }, [invoiceDate, dueDate])
+
+  function updBuyer(path, val) {
+    setBuyer((b) => {
+      if (path.startsWith('addr.')) {
+        const key = path.replace('addr.', '')
+        return { ...b, address: { ...b.address, [key]: val } }
+      }
+      if (path.startsWith('contact.')) {
+        const key = path.replace('contact.', '')
+        return { ...b, contact: { ...b.contact, [key]: val } }
+      }
+      return { ...b, [path]: val }
     })
-    onClose()
+  }
+
+  function updItem(i, field, raw) {
+    setItems((rows) =>
+      rows.map((row, idx) =>
+        idx === i
+          ? {
+              ...row,
+              [field]:
+                field === 'quantity' || field === 'unitPrice' || field === 'vatRate'
+                  ? Number(raw) || 0
+                  : field === 'vatApplicable'
+                    ? Boolean(raw)
+                    : raw,
+            }
+          : row,
+      ),
+    )
+  }
+
+  async function submit(e) {
+    e.preventDefault()
+    setSaveError('')
+    setSaving(true)
+
+    const cleanItems = items
+      .filter((it) => it.description.trim())
+      .map((it) => ({
+        description: it.description.trim(),
+        quantity: Number(it.quantity),
+        unit: it.unit || 'unit',
+        unitPrice: Number(it.unitPrice),
+        vatApplicable: Boolean(it.vatApplicable),
+        vatRate: Number(it.vatRate ?? 7.5),
+      }))
+
+    if (!buyer.businessName.trim()) {
+      setSaveError('Buyer name is required')
+      setSaving(false)
+      return
+    }
+    if (cleanItems.length < 1) {
+      setSaveError('Add at least one line item with a description')
+      setSaving(false)
+      return
+    }
+
+    try {
+      const res = await fetch('/api/invoices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          invoiceDate,
+          dueDate,
+          currency: 'NGN',
+          purchaseOrderNumber,
+          buyer: {
+            ...buyer,
+            businessName: buyer.businessName.trim(),
+          },
+          items: cleanItems,
+          paymentTerms,
+          acceptedMethods: ['bank_transfer'],
+          requiresSignature,
+          signedBy: signedBy.trim(),
+          discount,
+          withholdingTaxRate: withholdingTaxRate,
+          initialStatus,
+        }),
+      })
+
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(json?.error?.message ?? 'Could not create invoice')
+      }
+
+      await onCreated()
+      onClose()
+    } catch (err) {
+      setSaveError(err.message ?? 'Error')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
-          <h3 className="text-[17px] font-semibold text-[#111827]">Add Invoice Manually</h3>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F3F4F6] transition-colors">
+    <div role="presentation" className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-4 overflow-y-auto" onClick={onClose}>
+      <div
+        role="dialog"
+        className="max-w-[720px] mx-auto my-6 bg-white rounded-2xl shadow-xl overflow-hidden mb-24"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB] sticky top-0 bg-white z-10">
+          <h3 className="text-[17px] font-semibold text-[#111827]">New invoice</h3>
+          <button type="button" onClick={onClose} className="w-8 h-8 flex rounded-lg hover:bg-[#F3F4F6] items-center justify-center">
             <HiOutlineXMark size={20} className="text-[#6B7280]" />
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          <Field label="Vendor name" placeholder="e.g. Apex Supplies Ltd" value={vendor} onChange={setVendor} required />
-          <Field label="Amount (₦)" placeholder="0" value={amount} onChange={setAmount} type="number" required />
-          <Field label="Due date" value={dueDate} onChange={setDueDate} type="date" required />
-          <Field label="Description" placeholder="What is this invoice for?" value={description} onChange={setDescription} />
+        <form onSubmit={submit} className="p-6 space-y-6">
+          {saveError && (
+            <div className="text-[13px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] px-3 py-2 rounded-lg">{saveError}</div>
+          )}
 
-          <button
-            type="submit"
-            disabled={!vendor || !amount}
-            className="w-full py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40"
-          >
-            Add Invoice
-          </button>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Invoice date *" type="date" value={invoiceDate} onChange={setInvoiceDate} required />
+            <Field label="Due date *" type="date" value={dueDate} onChange={setDueDate} required />
+          </div>
+          <Field label="Purchase order #" value={purchaseOrderNumber} onChange={setPo} placeholder="Optional" />
+
+          <div className="space-y-3">
+            <h4 className="text-[13px] font-semibold text-[#111827] uppercase tracking-wider">Buyer</h4>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <Field label="Business name *" value={buyer.businessName} onChange={(v) => updBuyer('businessName', v)} required />
+              <Field label="Contact person" value={buyer.contactPerson} onChange={(v) => updBuyer('contactPerson', v)} />
+              <Field label="Buyer TIN" value={buyer.tin} onChange={(v) => updBuyer('tin', v)} placeholder="09876543-0001" />
+              <Field label="Email" type="email" value={buyer.contact?.email ?? ''} onChange={(v) => updBuyer('contact.email', v)} />
+              <Field label="Phone" value={buyer.contact?.phone ?? ''} onChange={(v) => updBuyer('contact.phone', v)} />
+              <Field label="Street" value={buyer.address?.street ?? ''} onChange={(v) => updBuyer('addr.street', v)} />
+              <Field label="City" value={buyer.address?.city ?? ''} onChange={(v) => updBuyer('addr.city', v)} />
+              <Field label="State" value={buyer.address?.state ?? ''} onChange={(v) => updBuyer('addr.state', v)} />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-[13px] font-semibold text-[#111827] uppercase tracking-wider">Line items</h4>
+              <button
+                type="button"
+                onClick={() => setItems((r) => [...r, emptyItem()])}
+                className="text-[13px] font-medium text-primary hover:underline"
+              >
+                + Add row
+              </button>
+            </div>
+            <div className="border border-[#E5E7EB] rounded-xl overflow-hidden">
+              <table className="w-full text-left">
+                <thead className="bg-[#F9FAFB] text-[11px] uppercase tracking-wider text-[#9CA3AF]">
+                  <tr>
+                    <th className="px-3 py-2">Description</th>
+                    <th className="px-3 py-2 w-[70px]">Qty</th>
+                    <th className="px-3 py-2 w-[72px]">Unit</th>
+                    <th className="px-3 py-2 w-[96px]">Price</th>
+                    <th className="px-3 py-2 w-[56px]">VAT%</th>
+                    <th className="px-3 py-2 w-[72px]" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((row, i) => (
+                    <tr key={i} className="border-t border-[#F3F4F6] align-top">
+                      <td className="px-2 py-2">
+                        <textarea
+                          className="w-full px-2 py-1 text-[13px] border border-[#D1D5DB] rounded-lg min-h-[40px]"
+                          placeholder="Description"
+                          value={row.description}
+                          onChange={(e) => updItem(i, 'description', e.target.value)}
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min={0.01}
+                          step="any"
+                          className="w-full px-2 py-1 text-[13px] border border-[#D1D5DB] rounded-lg"
+                          value={row.quantity}
+                          onChange={(e) => updItem(i, 'quantity', e.target.value)}
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="text"
+                          className="w-full px-2 py-1 text-[13px] border border-[#D1D5DB] rounded-lg"
+                          value={row.unit}
+                          onChange={(e) => updItem(i, 'unit', e.target.value)}
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          className="w-full px-2 py-1 text-[13px] border border-[#D1D5DB] rounded-lg"
+                          value={row.unitPrice}
+                          onChange={(e) => updItem(i, 'unitPrice', e.target.value)}
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <input
+                          type="number"
+                          disabled={row.vatApplicable === false}
+                          className="w-full px-2 py-1 text-[13px] border border-[#D1D5DB] rounded-lg disabled:bg-[#F3F4F6]"
+                          value={row.vatRate}
+                          onChange={(e) => updItem(i, 'vatRate', e.target.value)}
+                        />
+                      </td>
+                      <td className="px-2 py-2">
+                        <div className="flex flex-col gap-1">
+                          <label className="flex items-center gap-1 text-[11px] text-[#6B7280]">
+                            <input
+                              type="checkbox"
+                              checked={row.vatApplicable !== false}
+                              onChange={(e) => updItem(i, 'vatApplicable', e.target.checked)}
+                            />
+                            VAT
+                          </label>
+                          {items.length > 1 ? (
+                            <button
+                              type="button"
+                              className="text-[11px] text-[#DC2626]"
+                              onClick={() => setItems((rows) => rows.filter((_, j) => j !== i))}
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Field label="Discount (₦)" type="number" min={0} value={discount} onChange={(v) => setDiscount(Number(v) || 0)} />
+            <Field
+              label="Withholding tax % (on subtotal)"
+              type="number"
+              min={0}
+              step="any"
+              value={withholdingTaxRate}
+              onChange={(v) => setWht(Number(v) || 0)}
+            />
+          </div>
+
+          <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-4 text-[13px] space-y-1">
+            <div className="flex justify-between text-[#6B7280]">
+              <span>Subtotal</span>
+              <span>{formatNaira(preview.subtotal)}</span>
+            </div>
+            <div className="flex justify-between text-[#6B7280]">
+              <span>VAT amount</span>
+              <span>{formatNaira(preview.vatAmount)}</span>
+            </div>
+            <div className="flex justify-between text-[#6B7280]">
+              <span>Grand total</span>
+              <span>{formatNaira(preview.grandTotal)}</span>
+            </div>
+            <div className="flex justify-between font-semibold text-[#111827] pt-2 border-t border-[#E5E7EB]">
+              <span>Net payable (after WHT)</span>
+              <span>{formatNaira(preview.netPayable)}</span>
+            </div>
+          </div>
+
+          <Field label="Payment terms" value={paymentTerms} onChange={setPaymentTerms} />
+
+          <div className="flex flex-wrap items-center gap-4">
+            <label className="flex items-center gap-2 text-[14px] text-[#374151] cursor-pointer">
+              <input type="checkbox" checked={requiresSignature} onChange={(e) => setRequiresSignature(e.target.checked)} />
+              Requires signature
+            </label>
+            <Field label="Signed by" value={signedBy} onChange={setSignedBy} placeholder="Name" compact />
+          </div>
+
+          <div className="flex gap-4 items-center">
+            <label className="text-[13px] font-medium text-[#374151]">Submit as:</label>
+            <select
+              value={initialStatus}
+              onChange={(e) => setInitialStatus(e.target.value)}
+              className="px-3 py-2 rounded-lg border border-[#D1D5DB] text-[14px]"
+            >
+              <option value="pending">Pending review</option>
+              <option value="draft">Draft</option>
+            </select>
+          </div>
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 py-3 border border-[#D1D5DB] rounded-xl font-medium text-[14px]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="flex-1 py-3 bg-primary text-white font-semibold rounded-xl hover:opacity-90 disabled:opacity-40"
+            >
+              {saving ? 'Saving…' : 'Save invoice'}
+            </button>
+          </div>
         </form>
       </div>
     </div>
   )
 }
 
-function Field({ label, placeholder, value, onChange, type = 'text', required }) {
+function Field({ label, value, onChange, type = 'text', placeholder, required, compact, min, step }) {
   return (
-    <div>
-      <label className="block text-[14px] font-medium text-[#111827] mb-1.5">{label}</label>
+    <div className={compact ? 'inline-flex flex-col min-w-[120px]' : ''}>
+      <label className="block text-[14px] font-medium text-[#111827] mb-1">{label}</label>
       <input
         type={type}
         placeholder={placeholder}
+        required={required}
+        min={min}
+        step={step}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        required={required}
-        className="w-full px-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+        className={`w-full px-3 py-2 border border-[#D1D5DB] rounded-lg text-[14px]`}
       />
     </div>
   )
 }
 
-/* ── Invoice Detail Drawer ───────────────────────────────────────── */
+/* ── Detail drawer ─────────────────────────────────────────────── */
 
-function InvoiceDetail({ invoice, onClose }) {
-  const cfg = statusConfig[invoice.status]
-  const StatusIcon = cfg.icon
+function InvoiceDetailDrawer({ doc, loading, onClose, refreshList, refreshDetail }) {
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  async function patchStatus(next) {
+    if (!doc?.metadata?.id) return
+    setBusy(true)
+    setErr('')
+    try {
+      const res = await fetch(`/api/invoices/${doc.metadata.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status: next }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.error?.message ?? 'Update failed')
+      await refreshList()
+      await refreshDetail()
+    } catch (e) {
+      setErr(e.message ?? 'Error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function removeInvoice() {
+    if (!doc?.metadata?.id) return
+    if (!window.confirm('Delete this invoice permanently?')) return
+    setBusy(true)
+    setErr('')
+    try {
+      const res = await fetch(`/api/invoices/${doc.metadata.id}`, { method: 'DELETE', credentials: 'include' })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.error?.message ?? 'Delete failed')
+      onClose()
+      await refreshList()
+    } catch (e) {
+      setErr(e.message ?? 'Error')
+    } finally {
+      setBusy(false)
+    }
+  }
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white w-full max-w-lg h-full overflow-y-auto shadow-xl animate-[slideIn_0.2s_ease-out]" onClick={(e) => e.stopPropagation()}>
+    <div role="presentation" className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <aside
+        role="dialog"
+        className="bg-white w-full max-w-xl h-full overflow-y-auto shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB] sticky top-0 bg-white z-10">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-[#F3F0FF] flex items-center justify-center">
-              <HiOutlineDocumentText size={20} className="text-primary" />
-            </div>
-            <div>
-              <h3 className="text-[17px] font-semibold text-[#111827]">{invoice.id}</h3>
-              <p className="text-[13px] text-[#6B7280]">{invoice.vendor}</p>
-            </div>
-          </div>
-          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F3F4F6] transition-colors">
+          <h3 className="text-[16px] font-semibold text-[#111827]">Invoice detail</h3>
+          <button type="button" onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F3F4F6]">
             <HiOutlineXMark size={20} className="text-[#6B7280]" />
           </button>
         </div>
 
         <div className="p-6 space-y-6">
-          {/* Status + amount */}
-          <div className="flex items-center justify-between">
-            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium ${cfg.cls}`}>
-              <StatusIcon size={16} />
-              {cfg.label}
-            </span>
-            <p className="text-[28px] font-bold text-[#111827] tracking-tight">{invoice.amount}</p>
-          </div>
+          {loading && <p className="text-[14px] text-[#9CA3AF]">Loading…</p>}
+          {doc?._error && <p className="text-[14px] text-[#DC2626]">{doc._error}</p>}
+          {err && <p className="text-[14px] text-[#DC2626]">{err}</p>}
 
-          {/* Details grid */}
-          <div className="grid grid-cols-2 gap-4">
-            <DetailField label="Vendor" value={invoice.vendor} />
-            <DetailField label="Invoice ID" value={invoice.id} />
-            <DetailField label="Issue Date" value={invoice.issueDate} />
-            <DetailField label="Due Date" value={invoice.dueDate} />
-          </div>
+          {!loading && doc && !doc._error && (
+            <>
+              {(() => {
+                const cfg = statusUi(doc.invoice?.status ?? '')
+                const StatusIcon = cfg.icon
+                return (
+                  <div className="flex items-center justify-between gap-4">
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[13px] font-medium ${cfg.cls}`}>
+                      <StatusIcon size={16} />
+                      {cfg.label}
+                    </span>
+                    <p className="text-[22px] font-bold text-[#111827]">{formatNaira(doc.totals?.netPayable ?? 0)}</p>
+                  </div>
+                )
+              })()}
 
-          {/* Line items */}
-          <div>
-            <h4 className="text-[13px] font-semibold text-[#111827] uppercase tracking-wider mb-3">Line Items</h4>
-            <div className="bg-[#F9FAFB] rounded-xl border border-[#E5E7EB] overflow-hidden">
-              <table className="w-full text-left">
-                <thead>
-                  <tr className="border-b border-[#E5E7EB]">
-                    <th className="px-4 py-2.5 text-[11px] font-medium text-[#9CA3AF] uppercase">Item</th>
-                    <th className="px-4 py-2.5 text-[11px] font-medium text-[#9CA3AF] uppercase text-center">Qty</th>
-                    <th className="px-4 py-2.5 text-[11px] font-medium text-[#9CA3AF] uppercase text-right">Price</th>
-                    <th className="px-4 py-2.5 text-[11px] font-medium text-[#9CA3AF] uppercase text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {invoice.items.map((item, i) => (
-                    <tr key={i} className="border-b border-[#E5E7EB] last:border-0">
-                      <td className="px-4 py-3 text-[13px] text-[#374151]">{item.description}</td>
-                      <td className="px-4 py-3 text-[13px] text-[#6B7280] text-center">{item.qty}</td>
-                      <td className="px-4 py-3 text-[13px] text-[#6B7280] text-right">{item.unitPrice}</td>
-                      <td className="px-4 py-3 text-[13px] font-semibold text-[#111827] text-right">{item.total}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="flex items-center justify-between px-4 py-3 bg-white border-t border-[#E5E7EB]">
-                <span className="text-[13px] font-semibold text-[#111827]">Total</span>
-                <span className="text-[16px] font-bold text-[#111827]">{invoice.amount}</span>
+              <div>
+                <h4 className="text-[13px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-2">Invoice</h4>
+                <div className="grid grid-cols-2 gap-3 text-[14px]">
+                  <Detail label="Number" val={doc.invoice?.invoiceNumber} />
+                  <Detail label="Status" val={doc.invoice?.status} />
+                  <Detail label="Issue" val={formatDisplayDate(doc.invoice?.invoiceDate)} />
+                  <Detail label="Due" val={formatDisplayDate(doc.invoice?.dueDate)} />
+                  <Detail label="Currency" val={doc.invoice?.currency} />
+                  <Detail label="PO" val={doc.invoice?.purchaseOrderNumber ?? '—'} />
+                </div>
               </div>
-            </div>
-          </div>
 
-          {/* Actions */}
-          <div className="flex gap-3 pt-2">
-            {invoice.status === 'pending' && (
-              <>
-                <button className="flex-1 flex items-center justify-center gap-2 py-3 bg-[#059669] text-white text-[14px] font-semibold rounded-xl hover:opacity-90 transition-all">
-                  <HiOutlineCheckCircle size={18} />
-                  Approve
-                </button>
-                <button className="flex-1 flex items-center justify-center gap-2 py-3 bg-[#DC2626] text-white text-[14px] font-semibold rounded-xl hover:opacity-90 transition-all">
-                  <HiOutlineXCircle size={18} />
-                  Reject
-                </button>
-              </>
-            )}
-            <button className="flex items-center justify-center gap-2 py-3 px-4 border border-[#D1D5DB] text-[14px] font-medium text-[#374151] rounded-xl hover:bg-[#F9FAFB] transition-colors">
-              <HiOutlinePencilSquare size={18} />
-            </button>
-            <button className="flex items-center justify-center gap-2 py-3 px-4 border border-[#FECACA] text-[14px] font-medium text-[#DC2626] rounded-xl hover:bg-[#FEF2F2] transition-colors">
-              <HiOutlineTrash size={18} />
-            </button>
-          </div>
+              <SellerBuyerBlock title="Seller" data={doc.seller} accent="bg-[#F3F0FF]" />
+              <SellerBuyerBlock title="Buyer" data={doc.buyer} />
+
+              <div>
+                <h4 className="text-[13px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-2">Items</h4>
+                <div className="border border-[#E5E7EB] rounded-xl overflow-hidden overflow-x-auto">
+                  <table className="w-full text-left min-w-[500px]">
+                    <thead className="bg-[#F9FAFB] text-[11px] text-[#9CA3AF] uppercase">
+                      <tr>
+                        <th className="px-4 py-2">Description</th>
+                        <th className="px-4 py-2 text-center">Qty</th>
+                        <th className="px-4 py-2 text-right">Price</th>
+                        <th className="px-4 py-2 text-right">VAT</th>
+                        <th className="px-4 py-2 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(doc.items ?? []).map((it, idx) => (
+                        <tr key={it.id ?? idx} className="border-t border-[#F3F4F6] text-[13px]">
+                          <td className="px-4 py-2">{it.description}</td>
+                          <td className="px-4 py-2 text-center">{it.quantity}</td>
+                          <td className="px-4 py-2 text-right">{formatNaira(it.unitPrice)}</td>
+                          <td className="px-4 py-2 text-right">{it.vatApplicable ? `${it.vatRate}%` : '—'}</td>
+                          <td className="px-4 py-2 text-right font-medium">{formatNaira(it.total)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-[13px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-2">Totals</h4>
+                <div className="rounded-xl border border-[#E5E7EB] p-4 text-[13px] space-y-2">
+                  <TotRow label="Subtotal" n={doc.totals?.subtotal} />
+                  <TotRow label="Discount" n={doc.totals?.discount} />
+                  <TotRow label="VAT" n={doc.totals?.vatAmount} />
+                  <TotRow
+                    label="WHT"
+                    sub={`(${doc.totals?.withholdingTax?.rate ?? 0}% on subtotal)`}
+                    n={doc.totals?.withholdingTax?.amount}
+                  />
+                  <TotRow label="Grand total" strong n={doc.totals?.grandTotal} />
+                  <TotRow label="Net payable" strong n={doc.totals?.netPayable} emphasis />
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-[13px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-2">Payment</h4>
+                <p className="text-[13px] text-[#374151]">{doc.payment?.paymentTerms}</p>
+                <p className="text-[12px] text-[#9CA3AF] mt-1">
+                  Methods: {(doc.payment?.acceptedMethods ?? []).join(', ') || '—'}
+                </p>
+              </div>
+
+              <div>
+                <h4 className="text-[13px] font-semibold uppercase tracking-wider text-[#9CA3AF] mb-2">
+                  Compliance
+                </h4>
+                <ul className="text-[13px] text-[#374151] space-y-1 list-disc ml-5">
+                  <li>FIRS aligned: {doc.compliance?.firsCompliant ? 'Yes' : 'No'}</li>
+                  <li>Requires signature: {doc.compliance?.requiresSignature ? 'Yes' : 'No'}</li>
+                  <li>Signed by: {doc.compliance?.signedBy || '—'}</li>
+                  <li>Signature date: {formatDisplayDate(doc.compliance?.signatureDate)}</li>
+                </ul>
+              </div>
+
+              <div className="flex flex-wrap gap-2 pt-4 border-t border-[#E5E7EB]">
+                {doc.invoice?.status === 'pending' && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => patchStatus('approved')}
+                      className="flex items-center gap-2 px-4 py-3 bg-[#059669] text-white text-[13px] font-semibold rounded-xl disabled:opacity-40"
+                    >
+                      <HiOutlineCheckCircle size={18} /> Approve
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => patchStatus('rejected')}
+                      className="flex items-center gap-2 px-4 py-3 bg-[#DC2626] text-white text-[13px] font-semibold rounded-xl disabled:opacity-40"
+                    >
+                      <HiOutlineXCircle size={18} /> Reject
+                    </button>
+                  </>
+                )}
+                {doc.invoice?.status === 'approved' && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => patchStatus('paid')}
+                    className="flex items-center gap-2 px-4 py-3 bg-primary text-white text-[13px] font-semibold rounded-xl disabled:opacity-40"
+                  >
+                    Mark paid
+                  </button>
+                )}
+                {(doc.invoice?.status === 'draft' || doc.invoice?.status === 'rejected') && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={removeInvoice}
+                    className="flex items-center gap-2 px-4 py-3 border border-[#FECACA] text-[#DC2626] text-[13px] font-semibold rounded-xl disabled:opacity-40"
+                  >
+                    <HiOutlineTrash size={18} /> Delete
+                  </button>
+                )}
+              </div>
+            </>
+          )}
         </div>
-      </div>
+      </aside>
     </div>
   )
 }
 
-function DetailField({ label, value }) {
+function Detail({ label, val }) {
   return (
     <div>
-      <p className="text-[12px] text-[#9CA3AF] uppercase tracking-wider mb-1">{label}</p>
-      <p className="text-[14px] font-medium text-[#111827]">{value}</p>
+      <p className="text-[11px] text-[#9CA3AF] uppercase tracking-wide">{label}</p>
+      <p className="font-medium">{val ?? '—'}</p>
+    </div>
+  )
+}
+
+function TotRow({ label, n, strong, emphasis, sub }) {
+  const v =
+    typeof n === 'number' && !Number.isNaN(n)
+      ? formatNaira(n)
+      : n != null && n !== ''
+        ? String(n)
+        : formatNaira(0)
+  return (
+    <div className={`flex justify-between gap-4 ${emphasis ? 'pt-3 border-t border-[#F3F4F6]' : ''}`}>
+      <span className={`text-[#6B7280] ${strong ? 'font-semibold text-[#111827]' : ''}`}>
+        {label}
+        {sub ? <span className="text-[11px] font-normal ml-2">{sub}</span> : null}
+      </span>
+      <span className={`${strong ? 'font-semibold' : ''} ${emphasis ? 'font-bold text-[#111827]' : ''}`}>{v}</span>
+    </div>
+  )
+}
+
+function SellerBuyerBlock({ title, data, accent }) {
+  if (!data) return null
+  const bg = accent ?? ''
+  return (
+    <div className={`rounded-xl border border-[#E5E7EB] overflow-hidden ${bg}`}>
+      <div className="px-4 py-2 border-b border-[#E5E7EB]/80 bg-black/[0.02]">
+        <h4 className="text-[12px] font-semibold uppercase tracking-wider text-[#6B7280]">{title}</h4>
+      </div>
+      <div className="px-4 py-3 text-[13px] space-y-1 text-[#374151]">
+        <p className="font-semibold text-[#111827]">{data.businessName}</p>
+        {data.contactPerson ? <p>Contact: {data.contactPerson}</p> : null}
+        {(data.registrationType || data.cacNumber) && (
+          <p className="text-[12px] text-[#6B7280]">
+            {[data.registrationType, data.cacNumber ? `CAC ${data.cacNumber}` : null].filter(Boolean).join(' · ')}
+          </p>
+        )}
+        {(data.tin || data.vatNumber) && (
+          <p className="text-[12px] text-[#6B7280]">
+            {[data.tin ? `TIN ${data.tin}` : null, data.vatNumber ? `VAT ${data.vatNumber}` : null]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        )}
+        {data.address?.street ||
+        data.address?.city ||
+        data.address?.state ||
+        data.address?.country ||
+        data.address?.postalCode ? (
+          <p>
+            {[data.address?.street, [data.address?.city, data.address?.state].filter(Boolean).join(', ')]
+              .filter(Boolean)
+              .join(' · ')}
+            {data.address?.postalCode ? ` · ${data.address.postalCode}` : ''}
+            {data.address?.country ? ` · ${data.address.country}` : ''}
+          </p>
+        ) : null}
+        {data.contact?.email ? <p>Email: {data.contact.email}</p> : null}
+        {data.contact?.phone ? <p>Tel: {data.contact.phone}</p> : null}
+        {data.contact?.website ? <p>{data.contact.website}</p> : null}
+        {data.bankDetails?.bankName || data.bankDetails?.accountNumber ? (
+          <div className="mt-3 pt-3 border-t border-[#E5E7EB] text-[12px]">
+            <p className="font-medium text-[#111827]">Bank</p>
+            <p>{[data.bankDetails.bankName, data.bankDetails.accountName].filter(Boolean).join(' · ')}</p>
+            <p>Acct: {data.bankDetails.accountNumber ?? '—'}</p>
+          </div>
+        ) : null}
+      </div>
     </div>
   )
 }

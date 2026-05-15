@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   HiOutlineUser,
   HiOutlineBuildingOffice2,
@@ -39,9 +39,8 @@ export default function SettingsView() {
           <button
             key={id}
             onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-2 px-4 py-2 text-[13px] font-medium rounded-md transition-colors whitespace-nowrap ${
-              activeTab === id ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 text-[13px] font-medium rounded-md transition-colors whitespace-nowrap ${activeTab === id ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'
+              }`}
           >
             <Icon size={16} />
             {label}
@@ -117,39 +116,221 @@ function ProfileSettings() {
 
 function CompanySettings() {
   const [saved, setSaved] = useState(false)
+  const [loadError, setLoadError] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
-    companyName: 'ClearClaim Insurance Ltd',
-    industry: 'Financial Services',
-    size: '51-200',
-    address: '14 Broad Street, Lagos Island',
-    website: 'https://clearclaim.ng',
-    taxId: 'TIN-123456789',
+    companyName: '',
+    industry: '',
+    size: '',
+    revenue: '',
+    cacNumber: '',
+    tin: '',
+    vatNumber: '',
+    addressStreet: '',
+    city: '',
+    state: '',
+    postalCode: '',
+    country: 'Nigeria',
+    contactEmail: '',
+    contactPhone: '',
+    website: '',
+    bankName: '',
+    bankAccountName: '',
+    bankAccountNumber: '',
   })
+
+  useEffect(() => {
+    let cancelled = false
+    async function load() {
+      setLoading(true)
+      setLoadError('')
+      try {
+        const res = await fetch('/api/company', { credentials: 'include' })
+        const json = await res.json().catch(() => null)
+        if (!res.ok) throw new Error(json?.error?.message ?? 'Could not load company')
+        const c = json.company
+        if (!c || cancelled) return
+        const addr = c.address ?? {}
+        const contact = c.contact ?? {}
+        const bank = c.bankDetails ?? {}
+        setForm({
+          companyName: c.companyName ?? '',
+          industry: c.industry ?? '',
+          size: c.size ?? '',
+          revenue: c.revenue ?? '',
+          cacNumber: c.cacNumber ?? '',
+          tin: c.tin ?? '',
+          vatNumber: c.vatNumber ?? '',
+          addressStreet: addr.street ?? '',
+          city: addr.city ?? '',
+          state: addr.state ?? '',
+          postalCode: addr.postalCode ?? '',
+          country: addr.country ?? 'Nigeria',
+          contactEmail: contact.email ?? '',
+          contactPhone: contact.phone ?? '',
+          website: contact.website ?? '',
+          bankName: bank.bankName ?? '',
+          bankAccountName: bank.accountName ?? '',
+          bankAccountNumber: bank.accountNumber ?? '',
+        })
+      } catch (e) {
+        if (!cancelled) setLoadError(e.message ?? 'Failed to load')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    }
+    load()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   function update(field, value) {
     setForm((prev) => ({ ...prev, [field]: value }))
     setSaved(false)
   }
 
-  function handleSave(e) {
+  async function handleSave(e) {
     e.preventDefault()
-    setSaved(true)
-    setTimeout(() => setSaved(false), 3000)
+    setSaving(true)
+    setLoadError('')
+    try {
+      const res = await fetch('/api/company', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          name: form.companyName.trim(),
+          industry: form.industry.trim() || undefined,
+          size: form.size.trim() || undefined,
+          revenue: form.revenue.trim() || undefined,
+          cacNumber: form.cacNumber.trim() || undefined,
+          tin: form.tin.trim() || undefined,
+          vatNumber: form.vatNumber.trim() || undefined,
+          address: {
+            street: form.addressStreet.trim(),
+            city: form.city.trim(),
+            state: form.state.trim(),
+            country: form.country.trim() || 'Nigeria',
+            postalCode: form.postalCode.trim(),
+          },
+          contact: {
+            email: form.contactEmail.trim(),
+            phone: form.contactPhone.trim(),
+            website: form.website.trim(),
+          },
+          bankDetails: {
+            bankName: form.bankName.trim(),
+            accountName: form.bankAccountName.trim(),
+            accountNumber: form.bankAccountNumber.trim(),
+          },
+        }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(json?.error?.message ?? 'Save failed')
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch (err) {
+      setLoadError(err.message ?? 'Save failed')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <form onSubmit={handleSave} className="p-6 space-y-6">
-      <SectionHeader title="Company Information" subtitle="Your organization details" />
+      <SectionHeader
+        title="Company Information"
+        subtitle="Used as seller details on invoices (CAC, TIN, bank, address)"
+      />
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <SettingsField icon={HiOutlineBuildingOffice2} label="Company name" value={form.companyName} onChange={(v) => update('companyName', v)} />
-        <SettingsField icon={HiOutlineGlobeAlt} label="Industry" value={form.industry} onChange={(v) => update('industry', v)} />
-        <SettingsField label="Company size" value={form.size} onChange={(v) => update('size', v)} />
-        <SettingsField label="Tax ID" value={form.taxId} onChange={(v) => update('taxId', v)} />
-        <SettingsField icon={HiOutlineGlobeAlt} label="Website" value={form.website} onChange={(v) => update('website', v)} />
-        <SettingsField label="Address" value={form.address} onChange={(v) => update('address', v)} />
+      {loadError && (
+        <div className="text-[13px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] px-3 py-2 rounded-lg">
+          {loadError}
+        </div>
+      )}
+
+      {loading ? (
+        <p className="text-[14px] text-[#6B7280]">Loading company…</p>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <SettingsField
+              icon={HiOutlineBuildingOffice2}
+              label="Company name"
+              value={form.companyName}
+              onChange={(v) => update('companyName', v)}
+            />
+            <SettingsField
+              icon={HiOutlineGlobeAlt}
+              label="Industry"
+              value={form.industry}
+              onChange={(v) => update('industry', v)}
+            />
+            <SettingsField label="Company size" value={form.size} onChange={(v) => update('size', v)} />
+            <SettingsField label="Revenue band" value={form.revenue} onChange={(v) => update('revenue', v)} />
+            <SettingsField label="CAC number" value={form.cacNumber} onChange={(v) => update('cacNumber', v)} placeholder="RC1234567" />
+            <SettingsField label="TIN" value={form.tin} onChange={(v) => update('tin', v)} placeholder="01234567-0001" />
+            <SettingsField label="VAT number" value={form.vatNumber} onChange={(v) => update('vatNumber', v)} />
+          </div>
+
+          <div>
+            <p className="text-[13px] font-medium text-[#111827] mb-3">Registered address</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <SettingsField label="Street" value={form.addressStreet} onChange={(v) => update('addressStreet', v)} />
+              <SettingsField label="City" value={form.city} onChange={(v) => update('city', v)} />
+              <SettingsField label="State" value={form.state} onChange={(v) => update('state', v)} />
+              <SettingsField label="Postal code" value={form.postalCode} onChange={(v) => update('postalCode', v)} />
+              <SettingsField label="Country" value={form.country} onChange={(v) => update('country', v)} />
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[13px] font-medium text-[#111827] mb-3">Contact & web</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <SettingsField
+                icon={HiOutlineEnvelope}
+                label="Billing email"
+                value={form.contactEmail}
+                onChange={(v) => update('contactEmail', v)}
+                type="email"
+              />
+              <SettingsField
+                icon={HiOutlinePhone}
+                label="Phone"
+                value={form.contactPhone}
+                onChange={(v) => update('contactPhone', v)}
+              />
+              <SettingsField
+                icon={HiOutlineGlobeAlt}
+                label="Website"
+                value={form.website}
+                onChange={(v) => update('website', v)}
+              />
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[13px] font-medium text-[#111827] mb-3">Bank details (invoice footer)</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <SettingsField label="Bank name" value={form.bankName} onChange={(v) => update('bankName', v)} />
+              <SettingsField label="Account name" value={form.bankAccountName} onChange={(v) => update('bankAccountName', v)} />
+              <SettingsField label="Account number" value={form.bankAccountNumber} onChange={(v) => update('bankAccountNumber', v)} />
+            </div>
+          </div>
+        </>
+      )}
+
+      <div className="flex items-center gap-3">
+        <button
+          type="submit"
+          disabled={loading || saving}
+          className="px-6 py-2.5 rounded-xl bg-primary text-white font-semibold text-[14px] hover:opacity-90 disabled:opacity-40"
+        >
+          {saving ? 'Saving…' : 'Save company'}
+        </button>
       </div>
-
       <SaveBar saved={saved} />
     </form>
   )
@@ -202,9 +383,8 @@ function AppearanceSettings() {
             <button
               key={t.id}
               onClick={() => { setTheme(t.id); setSaved(false) }}
-              className={`rounded-xl border-2 p-4 text-left transition-all ${
-                theme === t.id ? 'border-primary ring-2 ring-primary/20' : `${t.border} hover:border-[#9CA3AF]`
-              }`}
+              className={`rounded-xl border-2 p-4 text-left transition-all ${theme === t.id ? 'border-primary ring-2 ring-primary/20' : `${t.border} hover:border-[#9CA3AF]`
+                }`}
             >
               <div className={`w-full h-16 rounded-lg mb-3 ${t.preview}`} />
               <p className="text-[14px] font-semibold text-[#111827]">{t.label}</p>
@@ -222,9 +402,8 @@ function AppearanceSettings() {
             <button
               key={c.id}
               onClick={() => { setAccent(c.id); setSaved(false) }}
-              className={`w-10 h-10 rounded-full transition-all flex items-center justify-center ${
-                accent === c.id ? 'ring-2 ring-offset-2 ring-[#111827] scale-110' : 'hover:scale-105'
-              }`}
+              className={`w-10 h-10 rounded-full transition-all flex items-center justify-center ${accent === c.id ? 'ring-2 ring-offset-2 ring-[#111827] scale-110' : 'hover:scale-105'
+                }`}
               style={{ backgroundColor: c.value }}
               title={c.label}
             >
@@ -242,9 +421,8 @@ function AppearanceSettings() {
             <button
               key={f.id}
               onClick={() => { setFontSize(f.id); setSaved(false) }}
-              className={`px-4 py-2 text-[13px] font-medium rounded-md transition-colors ${
-                fontSize === f.id ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'
-              }`}
+              className={`px-4 py-2 text-[13px] font-medium rounded-md transition-colors ${fontSize === f.id ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'
+                }`}
             >
               {f.label}
             </button>
@@ -384,9 +562,8 @@ function SecuritySettings() {
             <button
               key={mins}
               onClick={() => setSessionTimeout(mins)}
-              className={`px-4 py-2 text-[13px] font-medium rounded-md transition-colors ${
-                sessionTimeout === mins ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'
-              }`}
+              className={`px-4 py-2 text-[13px] font-medium rounded-md transition-colors ${sessionTimeout === mins ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'
+                }`}
             >
               {mins}m
             </button>
