@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   HiOutlineArrowUpRight,
   HiOutlineArrowDownLeft,
@@ -16,25 +16,28 @@ import {
   HiOutlineXMark,
   HiOutlineClipboard,
   HiOutlineExclamationCircle,
+  HiOutlineArrowPath,
+  HiOutlineMagnifyingGlass,
 } from 'react-icons/hi2'
-
-const TRANSACTIONS = [
-  { id: 'TXN-3401', type: 'out', name: 'Apex Supplies Ltd', amount: '₦2,450,000', date: 'May 14, 2026', status: 'completed', category: 'Vendor' },
-  { id: 'TXN-3402', type: 'in', name: 'Client Payment — Meridian', amount: '₦8,200,000', date: 'May 13, 2026', status: 'completed', category: 'Revenue' },
-  { id: 'TXN-3403', type: 'out', name: 'Payroll — May Cycle 1', amount: '₦5,600,000', date: 'May 12, 2026', status: 'completed', category: 'Payroll' },
-  { id: 'TXN-3404', type: 'in', name: 'Greenfield Agritech', amount: '₦3,100,000', date: 'May 11, 2026', status: 'pending', category: 'Revenue' },
-  { id: 'TXN-3405', type: 'out', name: 'NovaTech Systems', amount: '₦890,000', date: 'May 10, 2026', status: 'failed', category: 'Vendor' },
-  { id: 'TXN-3406', type: 'in', name: 'Horizon Energy', amount: '₦4,500,000', date: 'May 10, 2026', status: 'completed', category: 'Revenue' },
-  { id: 'TXN-3407', type: 'out', name: 'Office Lease — Q2', amount: '₦1,200,000', date: 'May 9, 2026', status: 'completed', category: 'Operations' },
-]
+import { NIGERIAN_BANKS } from '@/lib/constants/banks'
 
 const statusConfig = {
   completed: { label: 'Completed', icon: HiOutlineCheckCircle, cls: 'text-[#059669] bg-[#ECFDF5]' },
+  success: { label: 'Completed', icon: HiOutlineCheckCircle, cls: 'text-[#059669] bg-[#ECFDF5]' },
   pending: { label: 'Pending', icon: HiOutlineClock, cls: 'text-[#D97706] bg-[#FFF7ED]' },
   failed: { label: 'Failed', icon: HiOutlineXCircle, cls: 'text-[#DC2626] bg-[#FEF2F2]' },
+  reversed: { label: 'Reversed', icon: HiOutlineArrowsRightLeft, cls: 'text-[#6B7280] bg-[#F3F4F6]' },
 }
 
 const FILTERS = ['All', 'Incoming', 'Outgoing']
+
+function formatNaira(amount) {
+  return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 2 }).format(amount)
+}
+
+function formatDate(dateStr) {
+  return new Date(dateStr).toLocaleDateString('en-NG', { month: 'short', day: 'numeric', year: 'numeric' })
+}
 
 export default function PaymentsPage() {
   const [balanceVisible, setBalanceVisible] = useState(true)
@@ -42,11 +45,77 @@ export default function PaymentsPage() {
   const [sendOpen, setSendOpen] = useState(false)
   const [receiveOpen, setReceiveOpen] = useState(false)
 
-  const filtered = TRANSACTIONS.filter((t) => {
-    if (filter === 'Incoming') return t.type === 'in'
-    if (filter === 'Outgoing') return t.type === 'out'
-    return true
-  })
+  const [balance, setBalance] = useState(null)
+  const [virtualAccount, setVirtualAccount] = useState(null)
+  const [transactions, setTransactions] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [txLoading, setTxLoading] = useState(true)
+
+  const fetchBalance = useCallback(async () => {
+    try {
+      const res = await fetch('/api/wallet/balance')
+      if (res.ok) {
+        const data = await res.json()
+        setBalance(data.balance)
+        setVirtualAccount(data.virtualAccount)
+      }
+    } catch {
+      /* silent */
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const fetchTransactions = useCallback(async () => {
+    setTxLoading(true)
+    try {
+      const res = await fetch('/api/wallet/transactions?limit=50')
+      if (res.ok) {
+        const data = await res.json()
+        setTransactions(data.transactions ?? [])
+      }
+    } catch {
+      /* silent */
+    } finally {
+      setTxLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchBalance()
+    fetchTransactions()
+  }, [fetchBalance, fetchTransactions])
+
+  const handleTransferComplete = useCallback(() => {
+    fetchBalance()
+    fetchTransactions()
+  }, [fetchBalance, fetchTransactions])
+
+  const filtered = useMemo(() => {
+    return transactions.filter((t) => {
+      if (filter === 'Incoming') return t.type === 'credit'
+      if (filter === 'Outgoing') return t.type === 'debit'
+      return true
+    })
+  }, [transactions, filter])
+
+  const stats = useMemo(() => {
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const thisMonth = transactions.filter((t) => new Date(t.date) >= monthStart)
+
+    const sent = thisMonth
+      .filter((t) => t.type === 'debit' && (t.status === 'success' || t.status === 'completed'))
+      .reduce((s, t) => s + t.amount, 0)
+
+    const received = thisMonth
+      .filter((t) => t.type === 'credit')
+      .reduce((s, t) => s + t.amount, 0)
+
+    return { sent, received, total: thisMonth.length }
+  }, [transactions])
+
+  const balanceAmount = balance?.amountNaira ?? 0
 
   return (
     <div className="space-y-6 max-w-[1400px]">
@@ -62,9 +131,18 @@ export default function PaymentsPage() {
             <button onClick={() => setBalanceVisible(!balanceVisible)} className="ml-1 text-white/50 hover:text-white/80 transition-colors">
               {balanceVisible ? <HiOutlineEyeSlash size={18} /> : <HiOutlineEye size={18} />}
             </button>
+            <button onClick={fetchBalance} className="ml-auto text-white/50 hover:text-white/80 transition-colors" title="Refresh balance">
+              <HiOutlineArrowPath size={18} className={loading ? 'animate-spin' : ''} />
+            </button>
           </div>
           <p className="text-[36px] md:text-[42px] font-bold tracking-tight mb-6">
-            {balanceVisible ? '₦24,860,000' : '₦••••••••'}
+            {loading ? (
+              <span className="inline-block w-48 h-10 bg-white/10 rounded-lg animate-pulse" />
+            ) : balanceVisible ? (
+              formatNaira(balanceAmount)
+            ) : (
+              '₦••••••••'
+            )}
           </p>
 
           <div className="flex flex-wrap gap-3">
@@ -88,9 +166,9 @@ export default function PaymentsPage() {
 
       {/* Quick stats row */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <MiniStat icon={HiOutlineArrowUpRight} iconCls="text-[#DC2626] bg-[#FEF2F2]" label="Sent this month" value="₦10,140,000" />
-        <MiniStat icon={HiOutlineArrowDownLeft} iconCls="text-[#059669] bg-[#ECFDF5]" label="Received this month" value="₦15,800,000" />
-        <MiniStat icon={HiOutlineArrowsRightLeft} iconCls="text-primary bg-[#F3F0FF]" label="Total transactions" value="24" />
+        <MiniStat icon={HiOutlineArrowUpRight} iconCls="text-[#DC2626] bg-[#FEF2F2]" label="Sent this month" value={formatNaira(stats.sent)} />
+        <MiniStat icon={HiOutlineArrowDownLeft} iconCls="text-[#059669] bg-[#ECFDF5]" label="Received this month" value={formatNaira(stats.received)} />
+        <MiniStat icon={HiOutlineArrowsRightLeft} iconCls="text-primary bg-[#F3F0FF]" label="Total transactions" value={String(stats.total)} />
       </div>
 
       {/* Transaction history */}
@@ -105,8 +183,7 @@ export default function PaymentsPage() {
               <button
                 key={f}
                 onClick={() => setFilter(f)}
-                className={`px-3 py-1.5 text-[13px] font-medium rounded-md transition-colors ${filter === f ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'
-                  }`}
+                className={`px-3 py-1.5 text-[13px] font-medium rounded-md transition-colors ${filter === f ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'}`}
               >
                 {f}
               </button>
@@ -114,93 +191,119 @@ export default function PaymentsPage() {
           </div>
         </div>
 
-        {/* Desktop table */}
-        <div className="hidden sm:block overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-[#F3F4F6]">
-                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Transaction</th>
-                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Category</th>
-                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Date</th>
-                <th className="text-right text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Amount</th>
-                <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Status</th>
-              </tr>
-            </thead>
-            <tbody>
+        {txLoading ? (
+          <div className="p-8 text-center">
+            <HiOutlineArrowPath size={24} className="mx-auto text-[#9CA3AF] animate-spin mb-2" />
+            <p className="text-[13px] text-[#9CA3AF]">Loading transactions...</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-8 text-center">
+            <HiOutlineBanknotes size={32} className="mx-auto text-[#D1D5DB] mb-2" />
+            <p className="text-[14px] text-[#9CA3AF]">No transactions yet</p>
+          </div>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[#F3F4F6]">
+                    <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Transaction</th>
+                    <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Channel</th>
+                    <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Date</th>
+                    <th className="text-right text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Amount</th>
+                    <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((tx) => {
+                    const cfg = statusConfig[tx.status] ?? statusConfig.pending
+                    const StatusIcon = cfg.icon
+                    const isCredit = tx.type === 'credit'
+                    return (
+                      <tr key={tx.id} className="border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors">
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${isCredit ? 'bg-[#ECFDF5]' : 'bg-[#FEF2F2]'}`}>
+                              {isCredit
+                                ? <HiOutlineArrowDownLeft size={18} className="text-[#059669]" />
+                                : <HiOutlineArrowUpRight size={18} className="text-[#DC2626]" />}
+                            </div>
+                            <div>
+                              <p className="text-[14px] font-medium text-[#111827]">
+                                {isCredit ? (tx.senderName || tx.description) : (tx.recipientName || tx.description)}
+                              </p>
+                              <p className="text-[12px] text-[#9CA3AF] truncate max-w-[200px]">{tx.reference}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className="text-[13px] text-[#6B7280] bg-[#F3F4F6] px-2 py-1 rounded-md capitalize">{tx.channel}</span>
+                        </td>
+                        <td className="px-5 py-4 text-[13px] text-[#6B7280]">{formatDate(tx.date)}</td>
+                        <td className={`px-5 py-4 text-right text-[14px] font-semibold ${isCredit ? 'text-[#059669]' : 'text-[#111827]'}`}>
+                          {isCredit ? '+' : '−'}{formatNaira(tx.amount)}
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[12px] font-medium ${cfg.cls}`}>
+                            <StatusIcon size={14} />
+                            {cfg.label}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile list */}
+            <div className="sm:hidden divide-y divide-[#F3F4F6]">
               {filtered.map((tx) => {
-                const cfg = statusConfig[tx.status]
+                const cfg = statusConfig[tx.status] ?? statusConfig.pending
                 const StatusIcon = cfg.icon
+                const isCredit = tx.type === 'credit'
                 return (
-                  <tr key={tx.id} className="border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors">
-                    <td className="px-5 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${tx.type === 'in' ? 'bg-[#ECFDF5]' : 'bg-[#FEF2F2]'}`}>
-                          {tx.type === 'in'
-                            ? <HiOutlineArrowDownLeft size={18} className="text-[#059669]" />
-                            : <HiOutlineArrowUpRight size={18} className="text-[#DC2626]" />}
-                        </div>
-                        <div>
-                          <p className="text-[14px] font-medium text-[#111827]">{tx.name}</p>
-                          <p className="text-[12px] text-[#9CA3AF]">{tx.id}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className="text-[13px] text-[#6B7280] bg-[#F3F4F6] px-2 py-1 rounded-md">{tx.category}</span>
-                    </td>
-                    <td className="px-5 py-4 text-[13px] text-[#6B7280]">{tx.date}</td>
-                    <td className={`px-5 py-4 text-right text-[14px] font-semibold ${tx.type === 'in' ? 'text-[#059669]' : 'text-[#111827]'}`}>
-                      {tx.type === 'in' ? '+' : '−'}{tx.amount}
-                    </td>
-                    <td className="px-5 py-4">
-                      <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[12px] font-medium ${cfg.cls}`}>
-                        <StatusIcon size={14} />
+                  <div key={tx.id} className="flex items-center gap-3 px-5 py-4">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${isCredit ? 'bg-[#ECFDF5]' : 'bg-[#FEF2F2]'}`}>
+                      {isCredit
+                        ? <HiOutlineArrowDownLeft size={18} className="text-[#059669]" />
+                        : <HiOutlineArrowUpRight size={18} className="text-[#DC2626]" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] font-medium text-[#111827] truncate">
+                        {isCredit ? (tx.senderName || tx.description) : (tx.recipientName || tx.description)}
+                      </p>
+                      <p className="text-[12px] text-[#9CA3AF]">{formatDate(tx.date)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-[14px] font-semibold ${isCredit ? 'text-[#059669]' : 'text-[#111827]'}`}>
+                        {isCredit ? '+' : '−'}{formatNaira(tx.amount)}
+                      </p>
+                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${cfg.cls}`}>
+                        <StatusIcon size={12} />
                         {cfg.label}
                       </span>
-                    </td>
-                  </tr>
+                    </div>
+                  </div>
                 )
               })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile list */}
-        <div className="sm:hidden divide-y divide-[#F3F4F6]">
-          {filtered.map((tx) => {
-            const cfg = statusConfig[tx.status]
-            const StatusIcon = cfg.icon
-            return (
-              <div key={tx.id} className="flex items-center gap-3 px-5 py-4">
-                <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${tx.type === 'in' ? 'bg-[#ECFDF5]' : 'bg-[#FEF2F2]'}`}>
-                  {tx.type === 'in'
-                    ? <HiOutlineArrowDownLeft size={18} className="text-[#059669]" />
-                    : <HiOutlineArrowUpRight size={18} className="text-[#DC2626]" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[14px] font-medium text-[#111827] truncate">{tx.name}</p>
-                  <p className="text-[12px] text-[#9CA3AF]">{tx.date}</p>
-                </div>
-                <div className="text-right">
-                  <p className={`text-[14px] font-semibold ${tx.type === 'in' ? 'text-[#059669]' : 'text-[#111827]'}`}>
-                    {tx.type === 'in' ? '+' : '−'}{tx.amount}
-                  </p>
-                  <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${cfg.cls}`}>
-                    <StatusIcon size={12} />
-                    {cfg.label}
-                  </span>
-                </div>
-              </div>
-            )
-          })}
-        </div>
+            </div>
+          </>
+        )}
       </div>
 
-      {/* Send Money Modal */}
-      {sendOpen && <SendMoneyModal onClose={() => setSendOpen(false)} />}
-
-      {/* Receive Modal */}
-      {receiveOpen && <ReceiveModal onClose={() => setReceiveOpen(false)} />}
+      {sendOpen && <SendMoneyModal onClose={() => setSendOpen(false)} onSuccess={handleTransferComplete} />}
+      {receiveOpen && (
+        <ReceiveModal
+          onClose={() => setReceiveOpen(false)}
+          virtualAccount={virtualAccount}
+          onAccountCreated={(va) => {
+            setVirtualAccount(va)
+            fetchBalance()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -219,24 +322,102 @@ function MiniStat({ icon: Icon, iconCls, label, value }) {
   )
 }
 
-function SendMoneyModal({ onClose }) {
+function SendMoneyModal({ onClose, onSuccess }) {
   const [step, setStep] = useState(1)
-  const [bank, setBank] = useState('')
+  const [bankCode, setBankCode] = useState('')
   const [account, setAccount] = useState('')
   const [amount, setAmount] = useState('')
-  const [narration, setNarration] = useState('')
+  const [remark, setRemark] = useState('')
+  const [bankSearch, setBankSearch] = useState('')
 
-  function handleSend(e) {
+  const [lookupLoading, setLookupLoading] = useState(false)
+  const [lookupResult, setLookupResult] = useState(null)
+  const [lookupError, setLookupError] = useState('')
+
+  const [transferLoading, setTransferLoading] = useState(false)
+  const [transferResult, setTransferResult] = useState(null)
+  const [transferError, setTransferError] = useState('')
+
+  const filteredBanks = useMemo(() => {
+    if (!bankSearch) return NIGERIAN_BANKS
+    const q = bankSearch.toLowerCase()
+    return NIGERIAN_BANKS.filter((b) => b.name.toLowerCase().includes(q))
+  }, [bankSearch])
+
+  const selectedBank = NIGERIAN_BANKS.find((b) => b.code === bankCode)
+
+  useEffect(() => {
+    if (account.length === 10 && bankCode) {
+      handleLookup()
+    } else {
+      setLookupResult(null)
+      setLookupError('')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account, bankCode])
+
+  async function handleLookup() {
+    setLookupLoading(true)
+    setLookupError('')
+    setLookupResult(null)
+    try {
+      const res = await fetch('/api/wallet/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bankCode, accountNumber: account }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setLookupError(data.error?.message ?? 'Account lookup failed')
+        return
+      }
+      setLookupResult(data)
+    } catch {
+      setLookupError('Network error — try again')
+    } finally {
+      setLookupLoading(false)
+    }
+  }
+
+  async function handleTransfer(e) {
     e.preventDefault()
-    setStep(2)
+    if (!lookupResult) return
+
+    setTransferLoading(true)
+    setTransferError('')
+    try {
+      const res = await fetch('/api/wallet/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bankCode,
+          accountNumber: account,
+          accountName: lookupResult.accountName,
+          amount: parseFloat(amount),
+          remark: remark || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setTransferError(data.error?.message ?? 'Transfer failed')
+        return
+      }
+      setTransferResult(data)
+      setStep(2)
+      onSuccess?.()
+    } catch {
+      setTransferError('Network error — try again')
+    } finally {
+      setTransferLoading(false)
+    }
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
           <h3 className="text-[17px] font-semibold text-[#111827]">
-            {step === 1 ? 'Send Money' : 'Transfer Successful'}
+            {step === 1 ? 'Send Money' : 'Transfer Initiated'}
           </h3>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F3F4F6] transition-colors">
             <HiOutlineXMark size={20} className="text-[#6B7280]" />
@@ -244,17 +425,128 @@ function SendMoneyModal({ onClose }) {
         </div>
 
         {step === 1 ? (
-          <form onSubmit={handleSend} className="p-6 space-y-4">
-            <ModalField label="Bank name" placeholder="e.g. Access Bank" value={bank} onChange={setBank} />
-            <ModalField label="Account number" placeholder="0123456789" value={account} onChange={setAccount} />
-            <ModalField label="Amount (₦)" placeholder="0.00" value={amount} onChange={setAmount} type="number" />
-            <ModalField label="Narration (optional)" placeholder="Payment for..." value={narration} onChange={setNarration} />
+          <form onSubmit={handleTransfer} className="p-6 space-y-4">
+            {/* Bank selector */}
+            <div>
+              <label className="block text-[14px] font-medium text-[#111827] mb-1.5">Bank</label>
+              <div className="relative">
+                <div className="flex items-center border border-[#D1D5DB] rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary">
+                  <HiOutlineMagnifyingGlass size={16} className="ml-3 text-[#9CA3AF] shrink-0" />
+                  <input
+                    type="text"
+                    placeholder="Search bank..."
+                    value={selectedBank ? selectedBank.name : bankSearch}
+                    onChange={(e) => {
+                      setBankSearch(e.target.value)
+                      setBankCode('')
+                    }}
+                    onFocus={() => {
+                      if (selectedBank) {
+                        setBankSearch(selectedBank.name)
+                        setBankCode('')
+                      }
+                    }}
+                    className="w-full px-3 py-3 text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none"
+                  />
+                </div>
+                {!bankCode && bankSearch && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#E5E7EB] rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
+                    {filteredBanks.length === 0 ? (
+                      <p className="px-4 py-3 text-[13px] text-[#9CA3AF]">No bank found</p>
+                    ) : (
+                      filteredBanks.map((b) => (
+                        <button
+                          key={b.code}
+                          type="button"
+                          onClick={() => {
+                            setBankCode(b.code)
+                            setBankSearch('')
+                          }}
+                          className="w-full text-left px-4 py-2.5 text-[14px] text-[#111827] hover:bg-[#F3F4F6] transition-colors"
+                        >
+                          {b.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Account number */}
+            <div>
+              <label className="block text-[14px] font-medium text-[#111827] mb-1.5">Account number</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="0123456789"
+                value={account}
+                onChange={(e) => setAccount(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                className="w-full px-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+              {lookupLoading && (
+                <p className="mt-1 text-[12px] text-[#6B7280] flex items-center gap-1">
+                  <HiOutlineArrowPath size={12} className="animate-spin" /> Verifying account...
+                </p>
+              )}
+              {lookupResult && (
+                <p className="mt-1 text-[12px] text-[#059669] font-medium flex items-center gap-1">
+                  <HiOutlineCheckCircle size={14} /> {lookupResult.accountName}
+                </p>
+              )}
+              {lookupError && (
+                <p className="mt-1 text-[12px] text-[#DC2626]">{lookupError}</p>
+              )}
+            </div>
+
+            {/* Amount */}
+            <div>
+              <label className="block text-[14px] font-medium text-[#111827] mb-1.5">Amount (₦)</label>
+              <input
+                type="number"
+                placeholder="0.00"
+                min="1"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full px-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
+
+            {/* Remark */}
+            <div>
+              <label className="block text-[14px] font-medium text-[#111827] mb-1.5">Remark (optional)</label>
+              <input
+                type="text"
+                placeholder="Payment for..."
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+                maxLength={100}
+                className="w-full px-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
+
+            {transferError && (
+              <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-xl flex items-start gap-2">
+                <HiOutlineXCircle size={16} className="text-[#DC2626] mt-0.5 shrink-0" />
+                <p className="text-[13px] text-[#991B1B]">{transferError}</p>
+              </div>
+            )}
+
             <button
               type="submit"
-              disabled={!bank || !account || !amount}
-              className="w-full py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40"
+              disabled={!bankCode || !lookupResult || !amount || transferLoading}
+              className="w-full py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
             >
-              Send ₦{amount ? Number(amount).toLocaleString() : '0'}
+              {transferLoading ? (
+                <>
+                  <HiOutlineArrowPath size={16} className="animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>Send {amount ? formatNaira(parseFloat(amount)) : '₦0.00'}</>
+              )}
             </button>
           </form>
         ) : (
@@ -262,8 +554,16 @@ function SendMoneyModal({ onClose }) {
             <div className="w-16 h-16 rounded-full bg-[#ECFDF5] flex items-center justify-center mx-auto mb-4">
               <HiOutlineCheckCircle size={32} className="text-[#059669]" />
             </div>
-            <p className="text-[20px] font-bold text-[#111827] mb-1">₦{Number(amount).toLocaleString()}</p>
-            <p className="text-[14px] text-[#6B7280] mb-6">Sent to {account} ({bank})</p>
+            <p className="text-[20px] font-bold text-[#111827] mb-1">{formatNaira(transferResult?.amount ?? 0)}</p>
+            <p className="text-[14px] text-[#6B7280] mb-1">
+              Sent to {transferResult?.accountName}
+            </p>
+            <p className="text-[12px] text-[#9CA3AF] mb-1">
+              {transferResult?.accountNumber} • {transferResult?.destinationBank ?? selectedBank?.name}
+            </p>
+            <p className="text-[12px] text-[#9CA3AF] mb-6">
+              Ref: {transferResult?.transactionReference}
+            </p>
             <button onClick={onClose} className="w-full py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 transition-all">
               Done
             </button>
@@ -274,20 +574,49 @@ function SendMoneyModal({ onClose }) {
   )
 }
 
-function ReceiveModal({ onClose }) {
-  const acctNo = '0012345678'
-  const bankName = 'ClearClaim Finance'
+function ReceiveModal({ onClose, virtualAccount, onAccountCreated }) {
   const [copied, setCopied] = useState(false)
+  const [setting, setSetting] = useState(false)
+  const [setupError, setSetupError] = useState('')
+  const [beneficiaryAccount, setBeneficiaryAccount] = useState('')
+
+  const acctNo = virtualAccount?.accountNumber ?? '—'
+  const bankName = virtualAccount?.bankName ?? 'GTBank'
 
   function handleCopy() {
+    if (!virtualAccount) return
     navigator.clipboard.writeText(acctNo)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
+  async function handleSetup() {
+    setSetting(true)
+    setSetupError('')
+    try {
+      const res = await fetch('/api/wallet/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(beneficiaryAccount && { beneficiaryAccount }),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setSetupError(data.error?.message ?? 'Setup failed')
+        return
+      }
+      onAccountCreated?.(data.virtualAccount)
+    } catch {
+      setSetupError('Network error — try again')
+    } finally {
+      setSetting(false)
+    }
+  }
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
           <h3 className="text-[17px] font-semibold text-[#111827]">Receive Payment</h3>
           <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F3F4F6] transition-colors">
@@ -296,49 +625,86 @@ function ReceiveModal({ onClose }) {
         </div>
 
         <div className="p-6">
-          <p className="text-[13px] text-[#6B7280] mb-4">Share your account details to receive payments</p>
+          {virtualAccount ? (
+            <>
+              <p className="text-[13px] text-[#6B7280] mb-4">Share your account details to receive payments</p>
 
-          <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-5 space-y-4">
-            <div>
-              <p className="text-[12px] text-[#9CA3AF] uppercase tracking-wider mb-1">Bank Name</p>
-              <p className="text-[15px] font-semibold text-[#111827]">{bankName}</p>
-            </div>
-            <div>
-              <p className="text-[12px] text-[#9CA3AF] uppercase tracking-wider mb-1">Account Number</p>
-              <div className="flex items-center gap-2">
-                <p className="text-[22px] font-bold text-[#111827] tracking-wide">{acctNo}</p>
-                <button onClick={handleCopy} className="p-1.5 rounded-lg hover:bg-[#E5E7EB] transition-colors" title="Copy">
-                  {copied ? <HiOutlineCheckCircle size={18} className="text-[#059669]" /> : <HiOutlineClipboard size={18} className="text-[#6B7280]" />}
+              <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-5 space-y-4">
+                <div>
+                  <p className="text-[12px] text-[#9CA3AF] uppercase tracking-wider mb-1">Bank Name</p>
+                  <p className="text-[15px] font-semibold text-[#111827]">{bankName}</p>
+                </div>
+                <div>
+                  <p className="text-[12px] text-[#9CA3AF] uppercase tracking-wider mb-1">Account Number</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-[22px] font-bold text-[#111827] tracking-wide">{acctNo}</p>
+                    <button onClick={handleCopy} className="p-1.5 rounded-lg hover:bg-[#E5E7EB] transition-colors" title="Copy">
+                      {copied ? <HiOutlineCheckCircle size={18} className="text-[#059669]" /> : <HiOutlineClipboard size={18} className="text-[#6B7280]" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 bg-[#FFF7ED] border border-[#FED7AA] rounded-xl flex items-start gap-2.5">
+                <HiOutlineExclamationCircle size={18} className="text-[#D97706] mt-0.5 shrink-0" />
+                <p className="text-[13px] text-[#92400E]">Transfers typically arrive within 1–5 minutes during business hours.</p>
+              </div>
+            </>
+          ) : (
+            <div className="py-4">
+              <div className="text-center mb-5">
+                <HiOutlineExclamationCircle size={32} className="mx-auto text-[#D97706] mb-3" />
+                <p className="text-[14px] font-medium text-[#111827] mb-1">No virtual account found</p>
+                <p className="text-[13px] text-[#6B7280]">
+                  Set up your virtual account to start receiving payments.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[14px] font-medium text-[#111827] mb-1.5">
+                    Settlement account (GTBank)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={10}
+                    placeholder="10-digit GTBank account number"
+                    value={beneficiaryAccount}
+                    onChange={(e) => setBeneficiaryAccount(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    className="w-full px-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                  />
+                  <p className="text-[12px] text-[#9CA3AF] mt-1">
+                    Money received will be settled into this GTBank account. If left empty, it goes to your Squad wallet (T+1).
+                  </p>
+                </div>
+
+                {setupError && (
+                  <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-xl flex items-start gap-2">
+                    <HiOutlineXCircle size={16} className="text-[#DC2626] mt-0.5 shrink-0" />
+                    <p className="text-[13px] text-[#991B1B]">{setupError}</p>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleSetup}
+                  disabled={setting}
+                  className="w-full py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {setting ? (
+                    <>
+                      <HiOutlineArrowPath size={16} className="animate-spin" />
+                      Creating account...
+                    </>
+                  ) : (
+                    'Create Virtual Account'
+                  )}
                 </button>
               </div>
             </div>
-            <div>
-              <p className="text-[12px] text-[#9CA3AF] uppercase tracking-wider mb-1">Account Name</p>
-              <p className="text-[15px] font-semibold text-[#111827]">ClearClaim Insurance Ltd</p>
-            </div>
-          </div>
-
-          <div className="mt-4 p-3 bg-[#FFF7ED] border border-[#FED7AA] rounded-xl flex items-start gap-2.5">
-            <HiOutlineExclamationCircle size={18} className="text-[#D97706] mt-0.5 shrink-0" />
-            <p className="text-[13px] text-[#92400E]">Transfers typically arrive within 1–5 minutes during business hours.</p>
-          </div>
+          )}
         </div>
       </div>
-    </div>
-  )
-}
-
-function ModalField({ label, placeholder, value, onChange, type = 'text' }) {
-  return (
-    <div>
-      <label className="block text-[14px] font-medium text-[#111827] mb-1.5">{label}</label>
-      <input
-        type={type}
-        placeholder={placeholder}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full px-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
-      />
     </div>
   )
 }

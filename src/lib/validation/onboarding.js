@@ -54,6 +54,22 @@ export const onboardingSchema = z
       required_error: 'Signer role is required',
       invalid_type_error: `Signer role must be one of: ${SIGNER_ROLES.join(', ')}`,
     }),
+
+    bvn: z
+      .string({ required_error: 'BVN is required' })
+      .regex(/^\d{11}$/, 'BVN must be exactly 11 digits'),
+
+    phoneNumber: z
+      .string({ required_error: 'Phone number is required' })
+      .regex(
+        /^0[789]\d{9}$/,
+        'Must be a valid Nigerian phone number (e.g. 08012345678)',
+      ),
+
+    beneficiaryAccount: z
+      .string()
+      .regex(/^\d{10}$/, 'Must be a valid 10-digit GTBank account number')
+      .optional(),
   })
   .strict()
 

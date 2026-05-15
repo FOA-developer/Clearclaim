@@ -15,6 +15,11 @@ import {
   HiOutlineChartBarSquare,
   HiOutlineArrowRight,
   HiOutlineExclamationCircle,
+  HiOutlineFingerPrint,
+  HiOutlineDevicePhoneMobile,
+  HiOutlineEye,
+  HiOutlineEyeSlash,
+  HiOutlineShieldCheck,
 } from 'react-icons/hi2'
 
 import {
@@ -52,7 +57,7 @@ const REVENUE_OPTIONS = [
   { value: 'Above ₦5B', label: 'Above ₦5B', desc: 'Large Enterprise' },
 ]
 
-const TOTAL_STEPS = 4
+const TOTAL_STEPS = 5
 
 export default function OnboardingFlow() {
   const router = useRouter()
@@ -65,12 +70,17 @@ export default function OnboardingFlow() {
   const [signerRole, setSignerRole] = useState('')
   const [companySize, setCompanySize] = useState('')
   const [companyRevenue, setCompanyRevenue] = useState('')
+  const [bvn, setBvn] = useState('')
+  const [phoneNumber, setPhoneNumber] = useState('')
+  const [beneficiaryAccount, setBeneficiaryAccount] = useState('')
+  const [showBvn, setShowBvn] = useState(false)
 
   function canContinue() {
     if (step === 1) return signerRole.length > 0
     if (step === 2) return ownerName.trim().length >= 2 && companyName.trim().length >= 2
     if (step === 3) return companySize.length > 0
     if (step === 4) return companyRevenue.length > 0
+    if (step === 5) return /^\d{11}$/.test(bvn) && /^0[789]\d{9}$/.test(phoneNumber)
     return false
   }
 
@@ -88,6 +98,9 @@ export default function OnboardingFlow() {
           signerRole,
           companySize,
           companyRevenue,
+          bvn,
+          phoneNumber,
+          ...(beneficiaryAccount && { beneficiaryAccount }),
         }),
       })
 
@@ -229,6 +242,78 @@ export default function OnboardingFlow() {
                     onSelect={() => setCompanyRevenue(opt.value)}
                   />
                 ))}
+              </div>
+            </StepContainer>
+          )}
+
+          {step === 5 && (
+            <StepContainer
+              title="Verify your identity"
+              subtitle="We need your BVN and phone number to create a virtual account for your business."
+            >
+              <div className="space-y-5">
+                <div>
+                  <label htmlFor="bvn" className="block text-[14px] font-medium text-[#111827] mb-1.5">
+                    Bank Verification Number (BVN)
+                  </label>
+                  <div className="relative">
+                    <HiOutlineFingerPrint size={18} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[#9CA3AF]" />
+                    <input
+                      id="bvn"
+                      type={showBvn ? 'text' : 'password'}
+                      inputMode="numeric"
+                      maxLength={11}
+                      placeholder="Enter your 11-digit BVN"
+                      value={bvn}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/\D/g, '').slice(0, 11)
+                        setBvn(v)
+                      }}
+                      className="w-full pl-10 pr-12 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowBvn(!showBvn)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#6B7280] transition-colors"
+                    >
+                      {showBvn ? <HiOutlineEyeSlash size={18} /> : <HiOutlineEye size={18} />}
+                    </button>
+                  </div>
+                  {bvn.length > 0 && bvn.length < 11 && (
+                    <p className="text-[12px] text-[#9CA3AF] mt-1">{11 - bvn.length} digits remaining</p>
+                  )}
+                </div>
+
+                <TextInput
+                  id="phoneNumber"
+                  label="Phone number"
+                  placeholder="e.g. 08012345678"
+                  value={phoneNumber}
+                  onChange={(v) => setPhoneNumber(v.replace(/\D/g, '').slice(0, 11))}
+                  icon={HiOutlineDevicePhoneMobile}
+                />
+
+                <TextInput
+                  id="beneficiaryAccount"
+                  label="Settlement account (GTBank, optional)"
+                  placeholder="10-digit GTBank account number"
+                  value={beneficiaryAccount}
+                  onChange={(v) => setBeneficiaryAccount(v.replace(/\D/g, '').slice(0, 10))}
+                  icon={HiOutlineBanknotes}
+                />
+                <p className="text-[12px] text-[#9CA3AF] -mt-3">
+                  If not provided, payments will be settled into your Squad wallet (T+1).
+                </p>
+
+                <div className="flex items-start gap-3 p-4 bg-[#F0FDF4] border border-[#BBF7D0] rounded-xl">
+                  <HiOutlineShieldCheck size={20} className="text-[#16A34A] mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-[13px] font-medium text-[#166534]">Your data is encrypted</p>
+                    <p className="text-[12px] text-[#15803D] mt-0.5">
+                      Your BVN is encrypted with AES-256 and used only to create a virtual account for your business. We never store it in plain text.
+                    </p>
+                  </div>
+                </div>
               </div>
             </StepContainer>
           )}
