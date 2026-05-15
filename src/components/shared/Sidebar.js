@@ -7,7 +7,6 @@ import {
   HiOutlineDocumentText,
   HiOutlineBanknotes,
   HiOutlineUsers,
-  HiOutlineClipboardDocumentCheck,
   HiOutlineCog6Tooth,
   HiOutlineInboxStack,
   HiOutlineArrowRightOnRectangle,
@@ -19,7 +18,6 @@ const mainNav = [
   { href: '/payments', label: 'Payments', icon: HiOutlineBanknotes },
   { href: '/invoices', label: 'Invoices', icon: HiOutlineDocumentText },
   { href: '/staff', label: 'Staff', icon: HiOutlineUsers },
-  { href: '/attendance', label: 'Attendance', icon: HiOutlineClipboardDocumentCheck },
   { href: '/vendors', label: 'Vendors', icon: HiOutlineInboxStack },
 ]
 
