@@ -1,11 +1,11 @@
 import Link from 'next/link'
-import LoginCard from '@/components/login/LoginCard'
+import SignupCard from '@/components/signup/SignupCard'
 
 export const metadata = {
-  title: 'Login | ClearClaim',
+  title: 'Sign Up | ClearClaim',
 }
 
-export default function LoginPage() {
+export default function SignupPage() {
   return (
     <div className="min-h-screen flex">
       {/* Left — Form */}
@@ -21,30 +21,27 @@ export default function LoginPage() {
         </nav>
 
         <main className="flex-1 flex items-center justify-center px-6 md:px-10 pb-12">
-          <LoginCard />
+          <SignupCard />
         </main>
       </div>
 
       {/* Right — Testimonial */}
       <div className="hidden lg:flex w-[620px] xl:w-[700px] bg-[#F9FAFB] flex-col items-center justify-center px-12 border-l border-[#E5E7EB]">
         <div className="max-w-sm">
-          {/* Avatar */}
           <div className="w-14 h-14 rounded-full bg-[#F3F0FF] flex items-center justify-center text-[18px] font-bold text-primary mb-8">
-            AO
+            FB
           </div>
 
-          {/* Quote */}
           <blockquote className="text-[20px] md:text-[22px] font-medium text-[#111827] leading-snug mb-8">
-            &ldquo;ClearClaim has been a{' '}
-            <span className="bg-[#F3F0FF] text-primary px-1.5 py-0.5 rounded">game-changer</span>{' '}
-            for us. We cut payroll processing from two days to twenty minutes. Our finance team finally has time for actual finance work.&rdquo;
+            &ldquo;Vendor payments used to require three approvals and a phone call. Now it is{' '}
+            <span className="bg-[#F3F0FF] text-primary px-1.5 py-0.5 rounded">one click</span>{' '}
+            with a full audit trail. That is the difference.&rdquo;
           </blockquote>
 
-          {/* Attribution */}
           <div>
-            <p className="text-[15px] font-semibold text-[#111827]">Amara Okonkwo</p>
+            <p className="text-[15px] font-semibold text-[#111827]">Funmi Balogun</p>
             <p className="text-[14px] text-[#6B7280]">
-              CFO at <span className="text-primary font-medium">Meridian Logistics</span>
+              Operations Manager at <span className="text-primary font-medium">Greenfield Agritech</span>
             </p>
           </div>
         </div>

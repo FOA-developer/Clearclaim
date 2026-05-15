@@ -59,6 +59,7 @@ export async function POST(request) {
       .insert({
         name: input.companyName,
         size: input.companySize,
+        revenue: input.companyRevenue,
         owner_id: user.id,
       })
       .select('id')

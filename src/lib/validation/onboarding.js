@@ -2,6 +2,15 @@ import { z } from 'zod'
 
 const COMPANY_SIZES = ['1-10', '11-50', '51-200', '201-500', '501-1000', '1000+']
 
+const COMPANY_REVENUES = [
+  'Under ₦10M',
+  '₦10M - ₦50M',
+  '₦50M - ₦200M',
+  '₦200M - ₦1B',
+  '₦1B - ₦5B',
+  'Above ₦5B',
+]
+
 const SIGNER_ROLES = [
   'owner',
   'ceo',
@@ -36,6 +45,11 @@ export const onboardingSchema = z
       invalid_type_error: `Company size must be one of: ${COMPANY_SIZES.join(', ')}`,
     }),
 
+    companyRevenue: z.enum(COMPANY_REVENUES, {
+      required_error: 'Company revenue is required',
+      invalid_type_error: `Company revenue must be one of: ${COMPANY_REVENUES.join(', ')}`,
+    }),
+
     signerRole: z.enum(SIGNER_ROLES, {
       required_error: 'Signer role is required',
       invalid_type_error: `Signer role must be one of: ${SIGNER_ROLES.join(', ')}`,
@@ -43,4 +57,4 @@ export const onboardingSchema = z
   })
   .strict()
 
-export { COMPANY_SIZES, SIGNER_ROLES }
+export { COMPANY_SIZES, COMPANY_REVENUES, SIGNER_ROLES }

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createMiddlewareClient } from '@/lib/supabase/middleware'
 
-const PUBLIC_ROUTES = new Set(['/', '/login'])
+const PUBLIC_ROUTES = new Set(['/', '/login', '/signup'])
 const AUTH_API_ROUTES = ['/api/auth/login', '/api/auth/signup', '/api/auth/callback']
 const STATIC_PREFIXES = ['/_next', '/favicon.ico', '/api/auth/callback']
 
