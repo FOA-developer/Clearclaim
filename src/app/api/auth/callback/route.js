@@ -36,14 +36,23 @@ export async function GET(request) {
     const user = data.user
 
     if (user) {
+      const metadata = user.user_metadata ?? {}
       const { error: profileError } = await supabaseAdmin
         .from('profiles')
         .upsert(
           {
             id: user.id,
             email: user.email,
-            full_name: user.user_metadata?.full_name ?? null,
+            full_name:
+              user.user_metadata?.full_name ??
+              metadata.full_name ??
+              null,
             avatar_url: user.user_metadata?.avatar_url ?? null,
+            role: metadata.role ?? 'staff',
+            department: metadata.department ?? '',
+            phone: metadata.phone ?? '',
+            company_id: metadata.company_id ?? null,
+            status: metadata.status ?? 'active',
             last_sign_in_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           },

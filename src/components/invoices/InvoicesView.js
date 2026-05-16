@@ -1,6 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import Skeleton from 'react-loading-skeleton'
+import 'react-loading-skeleton/dist/skeleton.css'
 import {
   HiOutlinePlus,
   HiOutlineArrowUpTray,
@@ -16,9 +18,43 @@ import {
   HiOutlineTrash,
   HiOutlinePencilSquare,
   HiOutlineCurrencyDollar,
+  HiOutlineBanknotes,
+  HiOutlineArrowPath,
 } from 'react-icons/hi2'
 
 const FILTERS = ['All', 'Draft', 'Pending', 'Approved', 'Rejected', 'Paid']
+
+/** Common Nigerian bank codes for the Squad dropdown */
+const BANK_CODES = [
+  ['000013', 'GTBank Plc'],
+  ['000014', 'Access Bank'],
+  ['000015', 'Zenith Bank Plc'],
+  ['000016', 'First Bank of Nigeria'],
+  ['000003', 'FCMB'],
+  ['000017', 'Wema Bank'],
+  ['000018', 'Union Bank'],
+  ['000002', 'Keystone Bank'],
+  ['000007', 'Fidelity Bank'],
+  ['000008', 'Polaris Bank'],
+  ['000011', 'Unity Bank'],
+  ['000001', 'Sterling Bank'],
+  ['000004', 'United Bank for Africa'],
+  ['000006', 'JAIZ Bank'],
+  ['000010', 'Ecobank Bank'],
+  ['000012', 'StanbicIBTC Bank'],
+  ['000019', 'Enterprise Bank'],
+  ['000020', 'Heritage'],
+  ['000021', 'Standard Chartered'],
+  ['000023', 'Providus Bank'],
+  ['000026', 'Taj Bank'],
+  ['000005', 'Diamond Bank'],
+  ['000009', 'Citi Bank'],
+  ['090267', 'Kuda Microfinance Bank'],
+  ['100004', 'Opay Digital Services LTD'],
+  ['100033', 'PalmPay Limited'],
+  ['000025', 'Titan Trust Bank'],
+  ['090325', 'Sparkle'],
+]
 
 function formatNaira(amount) {
   const n = Number(amount)
@@ -1088,6 +1124,18 @@ function InvoiceDetailDrawer({ doc, loading, onClose, refreshList, refreshDetail
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
+  // Payment (Squad) state
+  const [payOpen, setPayOpen] = useState(false)
+  const [payBankCode, setPayBankCode] = useState('')
+  const [payAccountNumber, setPayAccountNumber] = useState('')
+  const [payAccountName, setPayAccountName] = useState('')
+  const [payLookingUp, setPayLookingUp] = useState(false)
+  const [payLookupName, setPayLookupName] = useState('')
+  const [payLookupError, setPayLookupError] = useState('')
+  const [paySending, setPaySending] = useState(false)
+  const [payResult, setPayResult] = useState(null)
+  const [payError, setPayError] = useState('')
+
   async function patchStatus(next) {
     if (!doc?.metadata?.id) return
     setBusy(true)
@@ -1128,6 +1176,87 @@ function InvoiceDetailDrawer({ doc, loading, onClose, refreshList, refreshDetail
     }
   }
 
+  // ── Squad Payment ─────────────────────────────────────────────
+  async function handleAccountLookup() {
+    if (!payBankCode || !payAccountNumber) {
+      setPayLookupError('Select a bank and enter an account number')
+      return
+    }
+    setPayLookingUp(true)
+    setPayLookupError('')
+    setPayLookupName('')
+    try {
+      const res = await fetch('/api/payout/account-lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ bankCode: payBankCode, accountNumber: payAccountNumber }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.error?.message ?? 'Lookup failed')
+      setPayLookupName(j.accountName)
+      setPayAccountName(j.accountName)
+    } catch (e) {
+      setPayLookupError(e.message ?? 'Lookup failed')
+    } finally {
+      setPayLookingUp(false)
+    }
+  }
+
+  async function handlePay() {
+    if (!doc?.metadata?.id) return
+    if (!payBankCode || !payAccountNumber || !payAccountName) {
+      setPayError('Please complete all bank details and verify the account name')
+      return
+    }
+    const netPayable = doc.totals?.netPayable ?? 0
+    if (netPayable <= 0) {
+      setPayError('Invoice net payable must be greater than zero')
+      return
+    }
+
+    const confirmed = window.confirm(
+      `Send ₦${Number(netPayable).toLocaleString()} to ${payAccountName} (${payAccountNumber})? This action cannot be undone.`,
+    )
+    if (!confirmed) return
+
+    setPaySending(true)
+    setPayError('')
+    setPayResult(null)
+    try {
+      const res = await fetch(`/api/invoices/${doc.metadata.id}/pay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          bankCode: payBankCode,
+          accountNumber: payAccountNumber,
+          accountName: payAccountName,
+        }),
+      })
+      const j = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(j?.error?.message ?? j?.warning ?? 'Payment failed')
+      setPayResult(j)
+      await refreshList()
+      await refreshDetail()
+    } catch (e) {
+      setPayError(e.message ?? 'Payment failed')
+    } finally {
+      setPaySending(false)
+    }
+  }
+
+  function openPayModal() {
+    setPayError('')
+    setPayResult(null)
+    setPayLookupName('')
+    setPayLookupError('')
+    setPayBankCode('')
+    setPayAccountNumber('')
+    setPayAccountName('')
+    setPayOpen(true)
+  }
+
   return (
     <div role="presentation" className="fixed inset-0 z-50 flex justify-end bg-black/40 backdrop-blur-sm" onClick={onClose}>
       <aside
@@ -1143,7 +1272,118 @@ function InvoiceDetailDrawer({ doc, loading, onClose, refreshList, refreshDetail
         </div>
 
         <div className="p-6 space-y-6">
-          {loading && <p className="text-[14px] text-[#9CA3AF]">Loading…</p>}
+          {loading && (
+            <div className="space-y-6">
+              {/* Top row: status + amount */}
+              <div className="flex items-center justify-between gap-4">
+                <Skeleton width={90} height={32} borderRadius={8} />
+                <Skeleton width={140} height={32} borderRadius={6} />
+              </div>
+
+              {/* Invoice details */}
+              <div>
+                <Skeleton width={60} height={12} style={{ marginBottom: 10 }} />
+                <div className="grid grid-cols-2 gap-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i}>
+                      <Skeleton width={40} height={10} style={{ marginBottom: 4 }} />
+                      <Skeleton width={i % 2 === 0 ? 100 : 80} height={16} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Seller block */}
+              <div className="rounded-xl border border-[#E5E7EB] overflow-hidden">
+                <div className="px-4 py-2 bg-black/[0.02]">
+                  <Skeleton width={50} height={11} />
+                </div>
+                <div className="px-4 py-3 space-y-2">
+                  <Skeleton width={180} height={16} />
+                  <Skeleton width={120} height={13} />
+                  <Skeleton width={200} height={13} />
+                  <Skeleton width={140} height={13} />
+                  <div className="mt-3 pt-3 border-t border-[#F3F4F6]">
+                    <Skeleton width={40} height={13} style={{ marginBottom: 4 }} />
+                    <Skeleton width={160} height={13} style={{ marginBottom: 2 }} />
+                    <Skeleton width={100} height={13} />
+                  </div>
+                </div>
+              </div>
+
+              {/* Buyer block */}
+              <div className="rounded-xl border border-[#E5E7EB] overflow-hidden">
+                <div className="px-4 py-2 bg-black/[0.02]">
+                  <Skeleton width={50} height={11} />
+                </div>
+                <div className="px-4 py-3 space-y-2">
+                  <Skeleton width={200} height={16} />
+                  <Skeleton width={140} height={13} />
+                  <Skeleton width={160} height={13} />
+                </div>
+              </div>
+
+              {/* Items table */}
+              <div>
+                <Skeleton width={50} height={12} style={{ marginBottom: 10 }} />
+                <div className="border border-[#E5E7EB] rounded-xl overflow-hidden">
+                  <div className="bg-[#F9FAFB] px-4 py-2 flex gap-4">
+                    <Skeleton width="30%" height={11} />
+                    <Skeleton width="10%" height={11} />
+                    <Skeleton width="15%" height={11} />
+                    <Skeleton width="10%" height={11} />
+                    <Skeleton width="15%" height={11} />
+                  </div>
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <div key={i} className="px-4 py-2.5 border-t border-[#F3F4F6] flex gap-4">
+                      <Skeleton width={`${30 + (i * 5)}%`} height={13} />
+                      <Skeleton width="10%" height={13} />
+                      <Skeleton width="15%" height={13} />
+                      <Skeleton width="10%" height={13} />
+                      <Skeleton width="15%" height={13} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Totals */}
+              <div>
+                <Skeleton width={60} height={12} style={{ marginBottom: 10 }} />
+                <div className="rounded-xl border border-[#E5E7EB] p-4 space-y-2">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="flex justify-between">
+                      <Skeleton width={60 + i * 10} height={13} />
+                      <Skeleton width={60} height={13} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Payment */}
+              <div>
+                <Skeleton width={70} height={12} style={{ marginBottom: 10 }} />
+                <Skeleton width="60%" height={13} style={{ marginBottom: 4 }} />
+                <Skeleton width="40%" height={11} />
+              </div>
+
+              {/* Compliance */}
+              <div>
+                <Skeleton width={90} height={12} style={{ marginBottom: 10 }} />
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <div key={i} className="flex items-center gap-2 mb-1.5 ml-5">
+                    <Skeleton width={5} height={5} circle />
+                    <Skeleton width={120 + i * 20} height={13} />
+                  </div>
+                ))}
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex gap-2 pt-4 border-t border-[#E5E7EB]">
+                <Skeleton width={110} height={44} borderRadius={12} />
+                <Skeleton width={100} height={44} borderRadius={12} />
+              </div>
+            </div>
+          )}
           {doc?._error && <p className="text-[14px] text-[#DC2626]">{doc._error}</p>}
           {err && <p className="text-[14px] text-[#DC2626]">{err}</p>}
 
@@ -1266,11 +1506,11 @@ function InvoiceDetailDrawer({ doc, loading, onClose, refreshList, refreshDetail
                 {doc.invoice?.status === 'approved' && (
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={() => patchStatus('paid')}
-                    className="flex items-center gap-2 px-4 py-3 bg-primary text-white text-[13px] font-semibold rounded-xl disabled:opacity-40"
+                    disabled={busy || paySending}
+                    onClick={openPayModal}
+                    className="flex items-center gap-2 px-4 py-3 bg-[#059669] text-white text-[13px] font-semibold rounded-xl disabled:opacity-40"
                   >
-                    Mark paid
+                    <HiOutlineBanknotes size={18} /> Pay via Squad
                   </button>
                 )}
                 {(doc.invoice?.status === 'draft' || doc.invoice?.status === 'rejected') && (
@@ -1287,6 +1527,212 @@ function InvoiceDetailDrawer({ doc, loading, onClose, refreshList, refreshDetail
             </>
           )}
         </div>
+
+        {/* ── Squad Payment Modal ─────────────────────────────── */}
+        {payOpen && (
+          <div
+            role="presentation"
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={() => setPayOpen(false)}
+          >
+            <div
+              role="dialog"
+              className="bg-white rounded-2xl w-full max-w-md mx-4 shadow-2xl overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-[#E5E7EB]">
+                <h3 className="text-[15px] font-semibold text-[#111827] flex items-center gap-2">
+                  <HiOutlineBanknotes size={20} className="text-[#059669]" />
+                  Pay via Squad
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setPayOpen(false)}
+                  className="p-1.5 rounded-lg hover:bg-[#F3F4F6] text-[#6B7280]"
+                  disabled={paySending}
+                >
+                  <HiOutlineXMark size={18} />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="px-5 py-4 space-y-4">
+                {/* Invoice summary */}
+                <div className="bg-[#F9FAFB] rounded-xl px-4 py-3 text-[13px] space-y-1">
+                  <p className="text-[#6B7280]">
+                    Invoice <span className="font-medium text-[#111827]">{doc.invoice?.invoiceNumber}</span>
+                  </p>
+                  <p>
+                    Paying:{' '}
+                    <span className="font-bold text-[16px] text-[#111827]">
+                      {formatNaira(doc.totals?.netPayable ?? 0)}
+                    </span>
+                  </p>
+                  <p className="text-[#6B7280]">
+                    To: <span className="font-medium text-[#111827]">{doc.buyer?.businessName || 'Vendor'}</span>
+                  </p>
+                </div>
+
+                {/* Success state */}
+                {payResult ? (
+                  <div className="bg-[#ECFDF5] border border-[#A7F3D0] rounded-xl px-4 py-4 text-[13px] space-y-2">
+                    <p className="font-semibold text-[#059669] flex items-center gap-2">
+                      <HiOutlineCheckCircle size={18} /> Payment sent
+                    </p>
+                    <p className="text-[#374151]">
+                      {formatNaira(payResult.transfer?.amountNaira ?? 0)} transferred to{' '}
+                      {payResult.transfer?.accountName ?? 'vendor'}.
+                    </p>
+                    <p className="text-[11px] text-[#6B7280]">
+                      Ref: {payResult.transfer?.transactionRef ?? '—'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPayOpen(false)
+                        setPayResult(null)
+                      }}
+                      className="mt-2 px-4 py-2 bg-[#059669] text-white text-[13px] font-semibold rounded-lg w-full"
+                    >
+                      Done
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Bank selection */}
+                    <div>
+                      <label className="block text-[12px] font-semibold text-[#374151] mb-1.5">
+                        Bank
+                      </label>
+                      <select
+                        value={payBankCode}
+                        onChange={(e) => {
+                          setPayBankCode(e.target.value)
+                          setPayLookupName('')
+                          setPayLookupError('')
+                        }}
+                        className="w-full px-3 py-2.5 border border-[#D1D5DB] rounded-lg text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                      >
+                        <option value="">Select bank</option>
+                        {BANK_CODES.map(([code, name]) => (
+                          <option key={code} value={code}>
+                            {name}
+                          </option>
+                        ))}
+                        <option value="other">Other (enter code below)</option>
+                      </select>
+                      {payBankCode === 'other' && (
+                        <input
+                          type="text"
+                          placeholder="Enter bank code (e.g. 000013)"
+                          value=""
+                          onChange={(e) => {
+                            setPayBankCode(e.target.value)
+                            setPayLookupName('')
+                            setPayLookupError('')
+                          }}
+                          className="mt-2 w-full px-3 py-2.5 border border-[#D1D5DB] rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                        />
+                      )}
+                    </div>
+
+                    {/* Account number */}
+                    <div>
+                      <label className="block text-[12px] font-semibold text-[#374151] mb-1.5">
+                        Account number
+                      </label>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          maxLength={10}
+                          placeholder="10-digit NUBAN"
+                          value={payAccountNumber}
+                          onChange={(e) => {
+                            const v = e.target.value.replace(/\D/g, '').slice(0, 10)
+                            setPayAccountNumber(v)
+                            setPayLookupName('')
+                            setPayLookupError('')
+                          }}
+                          className="flex-1 px-3 py-2.5 border border-[#D1D5DB] rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary"
+                        />
+                        <button
+                          type="button"
+                          disabled={payLookingUp || !payBankCode || payAccountNumber.length !== 10}
+                          onClick={handleAccountLookup}
+                          className="flex items-center gap-1.5 px-3 py-2.5 bg-[#F3F4F6] text-[13px] font-medium rounded-lg hover:bg-[#E5E7EB] disabled:opacity-40 disabled:cursor-not-allowed"
+                        >
+                          {payLookingUp ? (
+                            <HiOutlineArrowPath size={16} className="animate-spin" />
+                          ) : (
+                            <HiOutlineMagnifyingGlass size={16} />
+                          )}
+                          Verify
+                        </button>
+                      </div>
+                      {payLookupError && (
+                        <p className="text-[12px] text-[#DC2626] mt-1">{payLookupError}</p>
+                      )}
+                    </div>
+
+                    {/* Verified account name */}
+                    {payLookupName && (
+                      <div className="bg-[#ECFDF5] border border-[#A7F3D0] rounded-lg px-3 py-2.5">
+                        <p className="text-[11px] text-[#6B7280] uppercase tracking-wide">Account name</p>
+                        <p className="text-[14px] font-semibold text-[#059669]">{payLookupName}</p>
+                      </div>
+                    )}
+
+                    {/* Account name (editable) */}
+                    <div>
+                      <label className="block text-[12px] font-semibold text-[#374151] mb-1.5">
+                        Account name
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Auto-filled after verification"
+                        value={payAccountName}
+                        onChange={(e) => setPayAccountName(e.target.value)}
+                        className="w-full px-3 py-2.5 border border-[#D1D5DB] rounded-lg text-[13px] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary disabled:bg-[#F9FAFB]"
+                      />
+                    </div>
+
+                    {payError && (
+                      <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-lg px-3 py-2.5 text-[12px] text-[#DC2626]">
+                        {payError}
+                      </div>
+                    )}
+
+                    {/* Pay button */}
+                    <button
+                      type="button"
+                      disabled={paySending || !payBankCode || payAccountNumber.length !== 10 || !payAccountName}
+                      onClick={handlePay}
+                      className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-[#059669] text-white text-[14px] font-semibold rounded-xl disabled:opacity-40 hover:bg-[#047857] transition-colors"
+                    >
+                      {paySending ? (
+                        <>
+                          <HiOutlineArrowPath size={18} className="animate-spin" />
+                          Processing payment...
+                        </>
+                      ) : (
+                        <>
+                          <HiOutlineBanknotes size={18} />
+                          Pay {formatNaira(doc.totals?.netPayable ?? 0)}
+                        </>
+                      )}
+                    </button>
+
+                    <p className="text-[11px] text-[#9CA3AF] text-center">
+                      Funds are transferred from your Squad wallet via NIP.
+                    </p>
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
       </aside>
     </div>
   )

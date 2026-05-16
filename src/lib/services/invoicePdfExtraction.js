@@ -1,4 +1,4 @@
-import { generateObject, createGateway } from 'ai'
+import { generateText, Output, createGateway } from 'ai'
 import { PDFParse } from 'pdf-parse'
 import { invoiceAiExtractSchema } from '@/lib/validation/invoiceExtraction'
 
@@ -81,11 +81,14 @@ export async function extractInvoiceWithModel({
 
   const clipped = cleaned.length > 25_000 ? `${cleaned.slice(0, 25_000)}\n...[truncated]` : cleaned
 
-  const { object } = await generateObject({
+  const { output } = await generateText({
     model: gatewayProvider(modelId),
-    schema: invoiceAiExtractSchema,
+    output: Output.object({
+      schema: invoiceAiExtractSchema,
+      name: 'Invoice',
+      description: 'Structured invoice extraction for Clear Claim (NGN B2B)',
+    }),
     temperature: 0,
-    experimental_telemetry: { isEnabled: false },
     providerOptions: {
       gateway: {
         tags: ['feature:invoice-extract'],
@@ -96,7 +99,7 @@ export async function extractInvoiceWithModel({
 Extract structured invoice data for Clear Claim (NGN B2B) from the raw PDF text only.
 
 Rules:
-1) Do not invent invoiceDate, dueDate, buyer, or line items — every value must be justified by the supplied text. If a field is missing and optional, omit or use schema defaults; required fields need the best faithful reading from the document.
+1) Do not invent invoiceDate, dueDate, buyer, or line items — every value must be justified by the supplied text. All fields in the schema are required. For information not found in the document, use empty/zero/false values: '' for strings, 0 for numbers, false for booleans, [] for arrays.
 2) Dates must be normalized to YYYY-MM-DD when you can infer them; if the document only shows an ambiguous date and you cannot resolve it, approximate only when the text clearly implies a single calendar date.
 3) Output 1–40 items in the "items" array. Each item: description, quantity as a positive number (default 1 if implied), unitPrice in major currency units (not kobo). Derive unitPrice from line totals and quantity when shown.
 4) buyer.businessName is the bill-to / customer name from the document (required). Map type to business vs individual from context.
@@ -110,5 +113,5 @@ EXTRACTED_INVOICE_TEXT:
 `,
   })
 
-  return object
+  return output
 }

@@ -49,7 +49,8 @@ function canTransition(from, to) {
 /**
  * GET /api/invoices/[id]
  */
-export async function GET(request, { params }) {
+export async function GET(request, { params: paramsPromise }) {
+  const params = await paramsPromise
   const start = Date.now()
   const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID()
   const route = `GET /api/invoices/${params.id}`
@@ -93,7 +94,8 @@ export async function GET(request, { params }) {
 /**
  * PATCH /api/invoices/[id]
  */
-export async function PATCH(request, { params }) {
+export async function PATCH(request, { params: paramsPromise }) {
+  const params = await paramsPromise
   const start = Date.now()
   const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID()
   const route = `PATCH /api/invoices/${params.id}`
@@ -314,7 +316,8 @@ export async function PATCH(request, { params }) {
 /**
  * DELETE /api/invoices/[id]
  */
-export async function DELETE(request, { params }) {
+export async function DELETE(request, { params: paramsPromise }) {
+  const params = await paramsPromise
   const start = Date.now()
   const requestId = request.headers.get('x-request-id') ?? crypto.randomUUID()
   const route = `DELETE /api/invoices/${params.id}`

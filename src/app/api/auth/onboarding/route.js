@@ -108,6 +108,7 @@ export async function POST(request) {
       .update({
         full_name: input.ownerName,
         company_id: company.id,
+        role: 'admin',
         signer_role: input.signerRole,
         bvn_encrypted: bvnEncrypted,
         bvn_hash: bvnHash,

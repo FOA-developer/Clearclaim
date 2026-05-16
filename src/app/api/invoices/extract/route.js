@@ -48,7 +48,7 @@ async function authenticate(request, log) {
  * POST /api/invoices/extract
  *
  * Accepts multipart PDF upload, extracts embedded text, and uses Vercel AI Gateway
- * (AI SDK `generateObject` + `creator/model-name`) for structured draft fields compatible with POST /api/invoices.
+ * (AI SDK `generateText` + `Output.object` + `creator/model-name`) for structured draft fields compatible with POST /api/invoices.
  *
  * Auth: Set `AI_GATEWAY_API_KEY` locally. On Vercel, OIDC can authenticate the gateway without a key
  * (`vercel dev` / `vercel env pull` for local OIDC).
