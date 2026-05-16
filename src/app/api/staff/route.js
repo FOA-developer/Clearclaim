@@ -3,8 +3,63 @@ import { createClient } from '@/lib/supabase/server'
 import supabaseAdmin from '@/lib/supabase/admin'
 import { AppError } from '@/lib/errors/AppError'
 import { createRequestLogger } from '@/lib/logger'
+import { canManageCompanyStaff } from '@/lib/staff/staffAccess'
+import { provisionStaffWithoutEmail } from '@/lib/staff/provisionStaffWithoutEmail'
 
 export const runtime = 'nodejs'
+
+const ALLOWED_ROLES = ['admin', 'manager', 'staff']
+
+function parseCsv(text) {
+  const lines = text.split(/\r?\n/).filter((l) => l.trim())
+  if (lines.length < 2) return { headers: [], rows: [] }
+
+  const headers = lines[0].split(',').map((h) => h.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_'))
+  const rows = lines.slice(1).map((line) => {
+    const values = line.split(',').map((v) => v.trim().replace(/^"|"$/g, ''))
+    const obj = {}
+    headers.forEach((h, i) => {
+      obj[h] = values[i] ?? ''
+    })
+    return obj
+  })
+  return { headers, rows }
+}
+
+function validateCsvRow(row, index) {
+  const errors = []
+  const email = row.email ?? row.email_address ?? ''
+  if (!email || !email.includes('@')) {
+    errors.push(`Row ${index + 2}: Missing or invalid email`)
+  }
+
+  const fullNameRaw = row.full_name ?? row.name ?? row.staff_name ?? ''
+  const fullName = String(fullNameRaw).trim()
+  if (!fullName) {
+    errors.push(`Row ${index + 2}: Missing staff name (use full_name or name column)`)
+  }
+
+  let role = (row.role ?? 'staff').toLowerCase()
+  if (!ALLOWED_ROLES.includes(role)) {
+    role = 'staff'
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    data: {
+      email: email.toLowerCase().trim(),
+      fullName,
+      role,
+      department: row.department ?? '',
+      phone: row.phone ?? row.phone_number ?? '',
+      accountName: row.account_name ?? row.accountname ?? '',
+      accountNumber: row.account_number ?? row.accountnumber ?? '',
+      bankName: row.bank_name ?? row.bankname ?? '',
+      bankCode: row.bank_code ?? row.bankcode ?? '',
+    },
+  }
+}
 
 async function authenticateForGet(request, log) {
   const cookieClient = await createClient()
@@ -21,13 +76,10 @@ async function authenticateForGet(request, log) {
     throw AppError.forbidden('Complete onboarding first')
   }
 
-  // If role is null, treat as admin (company creator)
-  const effectiveRole = profile.role ?? 'admin'
-
   return {
     userId: user.id,
     companyId: profile.company_id,
-    role: effectiveRole,
+    profileRole: profile.role,
     userLog: log.child({ userId: user.id }),
   }
 }
@@ -47,13 +99,13 @@ async function authenticateAsAdmin(request, log) {
     throw AppError.forbidden('Complete onboarding first')
   }
 
-  // Company creators may not have role set yet — default to admin
-  if (profile.role && profile.role !== 'admin') {
+  const allowed = await canManageCompanyStaff(user.id, profile.company_id, profile.role)
+  if (!allowed) {
     throw AppError.forbidden('Only admins can manage staff')
   }
 
-  // If role is null, this is likely the company creator — upgrade them
-  if (!profile.role) {
+  // Normalize org owner / legacy rows to explicit admin role
+  if (profile.role !== 'admin') {
     await supabaseAdmin
       .from('profiles')
       .update({ role: 'admin', updated_at: new Date().toISOString() })
@@ -78,11 +130,14 @@ export async function GET(request) {
   const log = createRequestLogger({ requestId, route: 'GET /api/staff' })
 
   try {
-    const { companyId, role, userLog } = await authenticateForGet(request, log)
+    const { userId, companyId, profileRole, userLog } = await authenticateForGet(request, log)
+    const canManageStaff = await canManageCompanyStaff(userId, companyId, profileRole)
 
     const { data: staff, error } = await supabaseAdmin
       .from('profiles')
-      .select('id, email, full_name, role, department, phone, status, avatar_url, created_at')
+      .select(
+        'id, email, full_name, role, phone_number, avatar_url, created_at, department, status, account_name, account_number, bank_name, bank_code',
+      )
       .eq('company_id', companyId)
       .order('created_at', { ascending: false })
 
@@ -96,7 +151,8 @@ export async function GET(request) {
     return NextResponse.json({
       currentUser: {
         id: userId,
-        role,
+        role: profileRole ?? 'staff',
+        canManageStaff,
       },
       staff: (staff ?? []).map((s) => ({
         id: s.id,
@@ -104,10 +160,14 @@ export async function GET(request) {
         name: s.full_name ?? s.email?.split('@')[0] ?? 'Unknown',
         role: s.role ?? 'staff',
         department: s.department ?? '',
-        phone: s.phone ?? '',
+        phone: s.phone_number ?? '',
         status: s.status ?? 'active',
         avatarUrl: s.avatar_url,
         joined: s.created_at,
+        accountName: s.account_name ?? '',
+        accountNumber: s.account_number ?? '',
+        bankName: s.bank_name ?? '',
+        bankCode: s.bank_code ?? '',
       })),
     })
   } catch (err) {
@@ -125,11 +185,17 @@ export async function GET(request) {
 /**
  * POST /api/staff
  *
- * Invites a new staff member by email. The invitee receives a Supabase
- * magic-link email. On sign-up, the auth callback stores their profile
- * with the role, department, and company_id from user_metadata.
+ * Creates a confirmed Auth user — no invitation email — and upserts matching profile row.
  *
- * Body: { email: string, role: string, department?: string, phone?: string }
+ * Body: {
+ *   fullName?: string,
+ *   name?: string,
+ *   email: string,
+ *   role: string,
+ *   department?: string,
+ *   phone?: string,
+ *   accountName?, accountNumber?, bankName?, bankCode?
+ * }
  */
 export async function POST(request) {
   const start = Date.now()
@@ -137,27 +203,49 @@ export async function POST(request) {
   const log = createRequestLogger({ requestId, route: 'POST /api/staff' })
 
   try {
-    const { companyId, userLog } = await authenticateAsAdmin(request, log)
+    const { companyId, userId, userLog } = await authenticateAsAdmin(request, log)
 
     const body = await request.json().catch(() => null)
     if (!body || typeof body !== 'object') {
       throw AppError.badRequest('Request body must be valid JSON')
     }
 
-    const { email, role, department, phone } = body
+    const {
+      email,
+      fullName: rawFullName,
+      name,
+      role,
+      department,
+      phone,
+      accountName,
+      accountNumber,
+      bankName,
+      bankCode,
+    } = body
+
+    const fullName = typeof rawFullName === 'string' && rawFullName.trim()
+      ? rawFullName.trim()
+      : typeof name === 'string' && name.trim()
+        ? name.trim()
+        : ''
+
+    if (!fullName) {
+      throw AppError.badRequest('Staff full name is required')
+    }
 
     if (!email || typeof email !== 'string' || !email.includes('@')) {
       throw AppError.badRequest('A valid email is required')
     }
-    if (!role || !['admin', 'manager', 'staff'].includes(role)) {
+    if (!role || !ALLOWED_ROLES.includes(role)) {
       throw AppError.badRequest('Role must be one of: admin, manager, staff')
     }
 
-    // Check if already invited
+    const normalizedEmail = email.trim().toLowerCase()
+
     const { data: existing } = await supabaseAdmin
       .from('profiles')
       .select('id')
-      .eq('email', email)
+      .eq('email', normalizedEmail)
       .eq('company_id', companyId)
       .maybeSingle()
 
@@ -165,49 +253,43 @@ export async function POST(request) {
       throw AppError.badRequest('A staff member with this email already exists')
     }
 
-    // Send Supabase invite with metadata
-    const { data: inviteData, error: inviteError } =
-      await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        data: {
-          role,
-          department: department ?? '',
-          phone: phone ?? '',
-          company_id: companyId,
-          invited_by: userLog.fields?.userId,
-        },
-        redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL ?? request.headers.get('origin')}/dashboard`,
-      })
+    const redirectBase =
+      (process.env.NEXT_PUBLIC_SITE_URL ?? request.headers.get('origin') ?? '').replace(/\/$/, '') ||
+      ''
 
-    if (inviteError) {
-      userLog.error({ err: inviteError, email }, 'Failed to send staff invite')
-      if (inviteError.message?.includes('already')) {
-        throw AppError.badRequest('This email is already registered')
+    const result = await provisionStaffWithoutEmail({
+      supabaseAdmin,
+      email,
+      fullName,
+      role,
+      department,
+      phone,
+      accountName,
+      accountNumber,
+      bankName,
+      bankCode,
+      companyId,
+      actingUserId: userId,
+      redirectTo: redirectBase ? `${redirectBase}/dashboard` : undefined,
+      generateMagicLink: false,
+    })
+
+    if (!result.ok) {
+      userLog.warn({ err: result.error }, 'Staff provision failed')
+      if (result.error?.kind === 'CONFLICT') {
+        throw AppError.conflict(result.error.message ?? 'Email already registered')
       }
-      throw AppError.internal('Failed to send invitation. Please try again.')
+      if (result.error?.kind === 'VALIDATION') {
+        throw AppError.badRequest(result.error.message ?? 'Validation failed')
+      }
+      throw AppError.internal(result.error?.message ?? 'Failed to create staff member')
     }
 
-    // Upsert profile record with 'invited' status so it appears in the staff list
-    if (inviteData?.user?.id) {
-      await supabaseAdmin.from('profiles').upsert(
-        {
-          id: inviteData.user.id,
-          email,
-          role,
-          department: department ?? '',
-          phone: phone ?? '',
-          company_id: companyId,
-          status: 'invited',
-          updated_at: new Date().toISOString(),
-        },
-        { onConflict: 'id' },
-      )
-    }
-
-    userLog.info({ email, role, department }, 'Staff invited')
+    userLog.info({ email: normalizedEmail, fullName }, 'Staff created without invite email')
 
     return NextResponse.json({
       success: true,
-      message: `Invitation sent to ${email}`,
+      message: `${fullName} was added — no invitation email was sent.`,
     })
   } catch (err) {
     if (err instanceof AppError) {
@@ -220,3 +302,4 @@ export async function POST(request) {
     )
   }
 }
+

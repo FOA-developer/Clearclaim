@@ -3,37 +3,79 @@ import { createClient } from '@/lib/supabase/server'
 import supabaseAdmin from '@/lib/supabase/admin'
 import { AppError } from '@/lib/errors/AppError'
 import { createRequestLogger } from '@/lib/logger'
+import { canManageCompanyStaff } from '@/lib/staff/staffAccess'
 
 export const runtime = 'nodejs'
 
 const ALLOWED_STATUSES = ['active', 'suspended', 'terminated', 'on_leave']
 const ALLOWED_ROLES = ['admin', 'manager', 'staff']
 
+/**
+ * Retry a Supabase admin operation on socket/network errors.
+ * Uses exponential backoff: 600ms, 1200ms, 2400ms.
+ */
+async function withRetry(operation, label, log) {
+  const MAX_ATTEMPTS = 3
+  let lastErr = null
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await operation()
+    } catch (err) {
+      lastErr = err
+      const isFetchFailure =
+        err instanceof TypeError &&
+        (err.message === 'fetch failed' || err.cause?.message?.includes('UND_ERR_SOCKET'))
+
+      if (isFetchFailure && attempt < MAX_ATTEMPTS) {
+        const delayMs = 600 * Math.pow(2, attempt - 1)
+        log.warn(
+          { attempt, delayMs, err: err.message },
+          `Supabase ${label} fetch failed, retrying`,
+        )
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+        continue
+      }
+      break
+    }
+  }
+  throw lastErr
+}
+
 async function authenticateAsAdmin(request, log) {
   const cookieClient = await createClient()
   const { data: { user }, error: authError } = await cookieClient.auth.getUser()
   if (authError || !user) throw AppError.unauthorized()
 
-  const { data: profile, error: profileError } = await supabaseAdmin
-    .from('profiles')
-    .select('company_id, role')
-    .eq('id', user.id)
-    .single()
+  const { data: profile, error: profileError } = await withRetry(
+    () =>
+      supabaseAdmin
+        .from('profiles')
+        .select('company_id, role')
+        .eq('id', user.id)
+        .single(),
+    'auth profile lookup',
+    log,
+  )
 
   if (profileError || !profile?.company_id) {
     throw AppError.forbidden('Complete onboarding first')
   }
 
-  // Company creators may not have role set yet — default to admin
-  if (profile.role && profile.role !== 'admin') {
+  const allowed = await canManageCompanyStaff(user.id, profile.company_id, profile.role)
+  if (!allowed) {
     throw AppError.forbidden('Only admins can manage staff')
   }
 
-  if (!profile.role) {
-    await supabaseAdmin
-      .from('profiles')
-      .update({ role: 'admin', updated_at: new Date().toISOString() })
-      .eq('id', user.id)
+  if (profile.role !== 'admin') {
+    await withRetry(
+      () =>
+        supabaseAdmin
+          .from('profiles')
+          .update({ role: 'admin', updated_at: new Date().toISOString() })
+          .eq('id', user.id),
+      'normalize admin role',
+      log,
+    )
   }
 
   return {
@@ -46,10 +88,20 @@ async function authenticateAsAdmin(request, log) {
 /**
  * PATCH /api/staff/[id]
  *
- * Updates a staff member's status (suspend, terminate, reactivate) or role.
+ * Updates a staff member's status (suspend, terminate, reactivate), role,
+ * department, phone, and bank account details.
  * Only admins can call this. You cannot modify your own status.
  *
- * Body: { status?: string, role?: string, department?: string, phone?: string }
+ * Body: {
+ *   status?: string,
+ *   role?: string,
+ *   department?: string,
+ *   phone?: string,
+ *   accountName?: string,
+ *   accountNumber?: string,
+ *   bankName?: string,
+ *   bankCode?: string,
+ * }
  */
 export async function PATCH(request, { params: paramsPromise }) {
   const params = await paramsPromise
@@ -67,12 +119,17 @@ export async function PATCH(request, { params: paramsPromise }) {
     }
 
     // Verify target belongs to same company
-    const { data: target, error: fetchErr } = await supabaseAdmin
-      .from('profiles')
-      .select('id, email, full_name, role, status, department, phone')
-      .eq('id', targetId)
-      .eq('company_id', companyId)
-      .single()
+    const { data: target, error: fetchErr } = await withRetry(
+      () =>
+        supabaseAdmin
+          .from('profiles')
+          .select('id, email, full_name, role, phone_number')
+          .eq('id', targetId)
+          .eq('company_id', companyId)
+          .single(),
+      'target staff lookup',
+      userLog,
+    )
 
     if (fetchErr?.code === 'PGRST116' || !target) {
       throw AppError.notFound('Staff member not found')
@@ -87,13 +144,10 @@ export async function PATCH(request, { params: paramsPromise }) {
       throw AppError.badRequest('Request body must be valid JSON')
     }
 
-    const { status, role, department, phone } = body
+    const { status, role, department, phone, accountName, accountNumber, bankName, bankCode } = body
     const updates = {}
 
-    if (status !== undefined) {
-      if (!ALLOWED_STATUSES.includes(status)) {
-        throw AppError.badRequest(`Status must be one of: ${ALLOWED_STATUSES.join(', ')}`)
-      }
+    if (status !== undefined && ALLOWED_STATUSES.includes(status)) {
       updates.status = status
     }
 
@@ -109,7 +163,23 @@ export async function PATCH(request, { params: paramsPromise }) {
     }
 
     if (phone !== undefined) {
-      updates.phone = typeof phone === 'string' ? phone : ''
+      updates.phone_number = typeof phone === 'string' ? phone : ''
+    }
+
+    if (accountName !== undefined) {
+      updates.account_name = typeof accountName === 'string' ? accountName : ''
+    }
+
+    if (accountNumber !== undefined) {
+      updates.account_number = typeof accountNumber === 'string' ? accountNumber : ''
+    }
+
+    if (bankName !== undefined) {
+      updates.bank_name = typeof bankName === 'string' ? bankName : ''
+    }
+
+    if (bankCode !== undefined) {
+      updates.bank_code = typeof bankCode === 'string' ? bankCode : ''
     }
 
     if (Object.keys(updates).length === 0) {
@@ -118,10 +188,15 @@ export async function PATCH(request, { params: paramsPromise }) {
 
     updates.updated_at = new Date().toISOString()
 
-    const { error: updateErr } = await supabaseAdmin
-      .from('profiles')
-      .update(updates)
-      .eq('id', targetId)
+    const { error: updateErr } = await withRetry(
+      () =>
+        supabaseAdmin
+          .from('profiles')
+          .update(updates)
+          .eq('id', targetId),
+      'staff profile update',
+      userLog,
+    )
 
     if (updateErr) {
       userLog.error({ err: updateErr }, 'Failed to update staff')
@@ -139,10 +214,14 @@ export async function PATCH(request, { params: paramsPromise }) {
         id: target.id,
         email: target.email,
         name: target.full_name ?? target.email?.split('@')[0] ?? 'Unknown',
-        role: updates.role ?? target.role,
-        department: updates.department ?? target.department,
-        phone: updates.phone ?? target.phone,
-        status: updates.status ?? target.status,
+        role: updates.role ?? target.role ?? 'staff',
+        department: updates.department ?? target.department ?? '',
+        phone: updates.phone_number ?? target.phone_number ?? '',
+        status: updates.status ?? target.status ?? 'active',
+        accountName: updates.account_name ?? target.account_name ?? '',
+        accountNumber: updates.account_number ?? target.account_number ?? '',
+        bankName: updates.bank_name ?? target.bank_name ?? '',
+        bankCode: updates.bank_code ?? target.bank_code ?? '',
       },
     })
   } catch (err) {
