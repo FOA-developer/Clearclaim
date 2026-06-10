@@ -1,341 +1,716 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import {
+  HiOutlineArrowUpRight,
+  HiOutlineArrowDownLeft,
+  HiOutlineBanknotes,
+  HiOutlineEye,
+  HiOutlineEyeSlash,
+  HiOutlinePaperAirplane,
+  HiOutlineQrCode,
+  HiOutlineArrowsRightLeft,
+  HiOutlineCheckCircle,
+  HiOutlineClock,
+  HiOutlineXCircle,
+  HiOutlineXMark,
+  HiOutlineClipboard,
+  HiOutlineExclamationCircle,
+  HiOutlineArrowPath,
+  HiOutlineMagnifyingGlass,
+} from 'react-icons/hi2'
+import { NIGERIAN_BANKS } from '@/lib/constants/banks'
 
-// ─── Static Data ──────────────────────────────────────────────────────────────
-
-const STAT_CARDS = [
-  {
-    id: 'released',
-    icon: 'payments',
-    iconColor: 'text-primary',
-    accentClass: 'bg-gradient-to-b from-[#7B1FA2] to-[#C2185B]',
-    badge: '+12.5%',
-    label: 'Total Released',
-    value: '$1,284,500.00',
-  },
-  {
-    id: 'blocked',
-    icon: 'block',
-    iconColor: 'text-error',
-    accentClass: 'bg-error',
-    badge: null,
-    label: 'Blocked',
-    value: '$42,350.00',
-  },
-  {
-    id: 'held',
-    icon: 'pause_circle',
-    iconColor: 'text-tertiary',
-    accentClass: 'bg-tertiary',
-    badge: null,
-    label: 'Held In Escrow',
-    value: '$158,900.00',
-  },
-]
-
-const LEDGER_ROWS = [
-  {
-    id: '#TXN-90281',
-    date: 'Oct 24, 2023',
-    recipient: 'Acme Corp Solutions',
-    amount: '$12,450.00',
-    status: 'released',
-  },
-  {
-    id: '#TXN-90282',
-    date: 'Oct 24, 2023',
-    recipient: 'Vanguard Logistics',
-    amount: '$8,200.00',
-    status: 'blocked',
-  },
-  {
-    id: '#TXN-90283',
-    date: 'Oct 23, 2023',
-    recipient: 'Global Freight Inc.',
-    amount: '$45,000.00',
-    status: 'held',
-  },
-  {
-    id: '#TXN-90280',
-    date: 'Oct 23, 2023',
-    recipient: 'Pinnacle Health Group',
-    amount: '$7,850.00',
-    status: 'released',
-  },
-  {
-    id: '#TXN-90279',
-    date: 'Oct 22, 2023',
-    recipient: 'Meridian Technologies',
-    amount: '$21,000.00',
-    status: 'held',
-  },
-]
-
-const INITIAL_LOGS = [
-  {
-    id: 1,
-    timestamp: '2023-10-24 14:02:11',
-    type: 'EVENT',
-    typeColor: 'text-[#569cd6]',
-    event: '"payment.released"',
-    payload: `{
-  "id": "evt_1NxP9jLkd6m",
-  "object": "event",
-  "api_version": "2023-10-16",
-  "created": 1698156131,
-  "data": {
-    "object": {
-      "id": "txn_90281",
-      "amount": 1245000,
-      "currency": "usd",
-      "status": "succeeded"
-    }
-  },
-  "type": "payment_intent.succeeded"
-}`,
-  },
-  {
-    id: 2,
-    timestamp: '2023-10-24 13:58:45',
-    type: 'ERROR',
-    typeColor: 'text-[#f44747]',
-    event: '"payment.blocked"',
-    payload: `{
-  "id": "evt_1NxP8kMkd2p",
-  "object": "event",
-  "type": "charge.failed",
-  "reason": "risk_assessment_failed",
-  "risk_score": 98
-}`,
-  },
-]
-
-const LIVE_EVENTS = [
-  {
-    id: 3,
-    timestamp: '2023-10-24 14:08:33',
-    type: 'EVENT',
-    typeColor: 'text-[#569cd6]',
-    event: '"payment.held"',
-    payload: `{
-  "id": "evt_1NxPAmkd9f",
-  "type": "payment_intent.processing",
-  "data": { "id": "txn_90283", "status": "escrow_pending" }
-}`,
-  },
-  {
-    id: 4,
-    timestamp: '2023-10-24 14:11:02',
-    type: 'INFO',
-    typeColor: 'text-[#dcdcaa]',
-    event: '"trust.score.computed"',
-    payload: `{
-  "claim_id": "CLM-88291",
-  "trust_score": 94,
-  "verdict": "PASS",
-  "latency_ms": 312
-}`,
-  },
-]
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function statusBadge(status) {
-  switch (status) {
-    case 'released':
-      return <span className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-[11px] font-bold uppercase">Released</span>
-    case 'blocked':
-      return <span className="bg-error-container text-on-error-container px-3 py-1 rounded-full text-[11px] font-bold uppercase">Blocked</span>
-    case 'held':
-      return <span className="bg-tertiary-container text-on-tertiary-container px-3 py-1 rounded-full text-[11px] font-bold uppercase">Held</span>
-    default:
-      return null
-  }
+const statusConfig = {
+  completed: { label: 'Completed', icon: HiOutlineCheckCircle, cls: 'text-[#059669] bg-[#ECFDF5]' },
+  success: { label: 'Completed', icon: HiOutlineCheckCircle, cls: 'text-[#059669] bg-[#ECFDF5]' },
+  pending: { label: 'Pending', icon: HiOutlineClock, cls: 'text-[#D97706] bg-[#FFF7ED]' },
+  failed: { label: 'Failed', icon: HiOutlineXCircle, cls: 'text-[#DC2626] bg-[#FEF2F2]' },
+  reversed: { label: 'Reversed', icon: HiOutlineArrowsRightLeft, cls: 'text-[#6B7280] bg-[#F3F4F6]' },
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
+const FILTERS = ['All', 'Incoming', 'Outgoing']
 
-function StatCard({ card }) {
+function formatNaira(amount) {
+  return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', minimumFractionDigits: 2 }).format(amount)
+}
+
+function formatDate(dateStr) {
+  return new Date(dateStr).toLocaleDateString('en-NG', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+export default function PaymentsPage() {
+  const [balanceVisible, setBalanceVisible] = useState(true)
+  const [filter, setFilter] = useState('All')
+  const [sendOpen, setSendOpen] = useState(false)
+  const [receiveOpen, setReceiveOpen] = useState(false)
+
+  const [balance, setBalance] = useState(null)
+  const [virtualAccount, setVirtualAccount] = useState(null)
+  const [transactions, setTransactions] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [txLoading, setTxLoading] = useState(true)
+
+  const fetchBalance = useCallback(async () => {
+    try {
+      const res = await fetch('/api/wallet/balance')
+      if (res.ok) {
+        const data = await res.json()
+        setBalance(data.balance)
+        setVirtualAccount(data.virtualAccount)
+      }
+    } catch {
+      /* silent */
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  const fetchTransactions = useCallback(async () => {
+    setTxLoading(true)
+    try {
+      const res = await fetch('/api/wallet/transactions?limit=50')
+      if (res.ok) {
+        const data = await res.json()
+        setTransactions(data.transactions ?? [])
+      }
+    } catch {
+      /* silent */
+    } finally {
+      setTxLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchBalance()
+    fetchTransactions()
+  }, [fetchBalance, fetchTransactions])
+
+  const handleTransferComplete = useCallback(() => {
+    fetchBalance()
+    fetchTransactions()
+  }, [fetchBalance, fetchTransactions])
+
+  const filtered = useMemo(() => {
+    return transactions.filter((t) => {
+      if (filter === 'Incoming') return t.type === 'credit'
+      if (filter === 'Outgoing') return t.type === 'debit'
+      return true
+    })
+  }, [transactions, filter])
+
+  const stats = useMemo(() => {
+    const now = new Date()
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
+    const thisMonth = transactions.filter((t) => new Date(t.date) >= monthStart)
+
+    const sent = thisMonth
+      .filter((t) => t.type === 'debit' && (t.status === 'success' || t.status === 'completed'))
+      .reduce((s, t) => s + t.amount, 0)
+
+    const received = thisMonth
+      .filter((t) => t.type === 'credit')
+      .reduce((s, t) => s + t.amount, 0)
+
+    return { sent, received, total: thisMonth.length }
+  }, [transactions])
+
+  const balanceAmount = balance?.amountNaira ?? 0
+
   return (
-    <div className="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant relative overflow-hidden hover:-translate-y-1 transition-transform duration-200">
-      {/* Left accent bar */}
-      <div className={`absolute top-0 left-0 w-1 h-full ${card.accentClass}`} />
+    <div className="space-y-6 max-w-[1400px]">
+      {/* Wallet card */}
+      <div className="bg-gradient-to-br from-[#4f378a] to-[#7c5cbf] rounded-2xl p-6 md:p-8 text-white relative overflow-hidden">
+        <div className="absolute top-0 right-0 w-[300px] h-[300px] bg-white/5 rounded-full -translate-y-1/2 translate-x-1/3" />
+        <div className="absolute bottom-0 left-0 w-[200px] h-[200px] bg-white/5 rounded-full translate-y-1/2 -translate-x-1/3" />
 
-      <div className="flex justify-between items-start mb-4">
-        <span
-          className={`material-symbols-outlined ${card.iconColor}`}
-          style={{ fontVariationSettings: "'FILL' 1" }}
-        >
-          {card.icon}
-        </span>
-        {card.badge && (
-          <span className="text-label-md text-primary bg-primary-fixed px-2 py-1 rounded-full">
-            {card.badge}
-          </span>
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 mb-1">
+            <HiOutlineBanknotes size={20} className="text-white/70" />
+            <span className="text-[14px] text-white/70 font-medium">Available Balance</span>
+            <button onClick={() => setBalanceVisible(!balanceVisible)} className="ml-1 text-white/50 hover:text-white/80 transition-colors">
+              {balanceVisible ? <HiOutlineEyeSlash size={18} /> : <HiOutlineEye size={18} />}
+            </button>
+            <button onClick={fetchBalance} className="ml-auto text-white/50 hover:text-white/80 transition-colors" title="Refresh balance">
+              <HiOutlineArrowPath size={18} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
+          <p className="text-[36px] md:text-[42px] font-bold tracking-tight mb-6">
+            {loading ? (
+              <span className="inline-block w-48 h-10 bg-white/10 rounded-lg animate-pulse" />
+            ) : balanceVisible ? (
+              formatNaira(balanceAmount)
+            ) : (
+              '₦••••••••'
+            )}
+          </p>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={() => setSendOpen(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-white text-[#4f378a] text-[14px] font-semibold rounded-xl hover:bg-white/90 active:scale-[0.98] transition-all"
+            >
+              <HiOutlinePaperAirplane size={18} />
+              Send Money
+            </button>
+            <button
+              onClick={() => setReceiveOpen(true)}
+              className="flex items-center gap-2 px-5 py-2.5 bg-white/15 text-white text-[14px] font-semibold rounded-xl hover:bg-white/25 active:scale-[0.98] transition-all border border-white/20"
+            >
+              <HiOutlineQrCode size={18} />
+              Receive
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Quick stats row */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <MiniStat icon={HiOutlineArrowUpRight} iconCls="text-[#DC2626] bg-[#FEF2F2]" label="Sent this month" value={formatNaira(stats.sent)} />
+        <MiniStat icon={HiOutlineArrowDownLeft} iconCls="text-[#059669] bg-[#ECFDF5]" label="Received this month" value={formatNaira(stats.received)} />
+        <MiniStat icon={HiOutlineArrowsRightLeft} iconCls="text-primary bg-[#F3F0FF]" label="Total transactions" value={String(stats.total)} />
+      </div>
+
+      {/* Transaction history */}
+      <div className="bg-white rounded-xl border border-[#E5E7EB]">
+        <div className="p-5 border-b border-[#F3F4F6] flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h3 className="text-[15px] font-semibold text-[#111827]">Transaction History</h3>
+            <p className="text-[13px] text-[#6B7280]">All wallet transactions</p>
+          </div>
+          <div className="flex items-center gap-1 bg-[#F3F4F6] rounded-lg p-1">
+            {FILTERS.map((f) => (
+              <button
+                key={f}
+                onClick={() => setFilter(f)}
+                className={`px-3 py-1.5 text-[13px] font-medium rounded-md transition-colors ${filter === f ? 'bg-white text-[#111827] shadow-sm' : 'text-[#6B7280] hover:text-[#111827]'}`}
+              >
+                {f}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {txLoading ? (
+          <div className="p-8 text-center">
+            <HiOutlineArrowPath size={24} className="mx-auto text-[#9CA3AF] animate-spin mb-2" />
+            <p className="text-[13px] text-[#9CA3AF]">Loading transactions...</p>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-8 text-center">
+            <HiOutlineBanknotes size={32} className="mx-auto text-[#D1D5DB] mb-2" />
+            <p className="text-[14px] text-[#9CA3AF]">No transactions yet</p>
+          </div>
+        ) : (
+          <>
+            {/* Desktop table */}
+            <div className="hidden sm:block overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-[#F3F4F6]">
+                    <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Transaction</th>
+                    <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Channel</th>
+                    <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Date</th>
+                    <th className="text-right text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Amount</th>
+                    <th className="text-left text-[12px] font-medium text-[#9CA3AF] px-5 py-3 uppercase tracking-wider">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((tx) => {
+                    const cfg = statusConfig[tx.status] ?? statusConfig.pending
+                    const StatusIcon = cfg.icon
+                    const isCredit = tx.type === 'credit'
+                    return (
+                      <tr key={tx.id} className="border-b border-[#F3F4F6] last:border-0 hover:bg-[#F9FAFB] transition-colors">
+                        <td className="px-5 py-4">
+                          <div className="flex items-center gap-3">
+                            <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${isCredit ? 'bg-[#ECFDF5]' : 'bg-[#FEF2F2]'}`}>
+                              {isCredit
+                                ? <HiOutlineArrowDownLeft size={18} className="text-[#059669]" />
+                                : <HiOutlineArrowUpRight size={18} className="text-[#DC2626]" />}
+                            </div>
+                            <div>
+                              <p className="text-[14px] font-medium text-[#111827]">
+                                {isCredit ? (tx.senderName || tx.description) : (tx.recipientName || tx.description)}
+                              </p>
+                              <p className="text-[12px] text-[#9CA3AF] truncate max-w-[200px]">{tx.reference}</p>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className="text-[13px] text-[#6B7280] bg-[#F3F4F6] px-2 py-1 rounded-md capitalize">{tx.channel}</span>
+                        </td>
+                        <td className="px-5 py-4 text-[13px] text-[#6B7280]">{formatDate(tx.date)}</td>
+                        <td className={`px-5 py-4 text-right text-[14px] font-semibold ${isCredit ? 'text-[#059669]' : 'text-[#111827]'}`}>
+                          {isCredit ? '+' : '−'}{formatNaira(tx.amount)}
+                        </td>
+                        <td className="px-5 py-4">
+                          <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[12px] font-medium ${cfg.cls}`}>
+                            <StatusIcon size={14} />
+                            {cfg.label}
+                          </span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Mobile list */}
+            <div className="sm:hidden divide-y divide-[#F3F4F6]">
+              {filtered.map((tx) => {
+                const cfg = statusConfig[tx.status] ?? statusConfig.pending
+                const StatusIcon = cfg.icon
+                const isCredit = tx.type === 'credit'
+                return (
+                  <div key={tx.id} className="flex items-center gap-3 px-5 py-4">
+                    <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${isCredit ? 'bg-[#ECFDF5]' : 'bg-[#FEF2F2]'}`}>
+                      {isCredit
+                        ? <HiOutlineArrowDownLeft size={18} className="text-[#059669]" />
+                        : <HiOutlineArrowUpRight size={18} className="text-[#DC2626]" />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] font-medium text-[#111827] truncate">
+                        {isCredit ? (tx.senderName || tx.description) : (tx.recipientName || tx.description)}
+                      </p>
+                      <p className="text-[12px] text-[#9CA3AF]">{formatDate(tx.date)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className={`text-[14px] font-semibold ${isCredit ? 'text-[#059669]' : 'text-[#111827]'}`}>
+                        {isCredit ? '+' : '−'}{formatNaira(tx.amount)}
+                      </p>
+                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium ${cfg.cls}`}>
+                        <StatusIcon size={12} />
+                        {cfg.label}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
         )}
       </div>
 
-      <p className="text-label-md text-on-surface-variant uppercase tracking-wider mb-1">
-        {card.label}
-      </p>
-      <p className="text-headline-lg font-bold text-on-background">{card.value}</p>
+      {sendOpen && <SendMoneyModal onClose={() => setSendOpen(false)} onSuccess={handleTransferComplete} />}
+      {receiveOpen && (
+        <ReceiveModal
+          onClose={() => setReceiveOpen(false)}
+          virtualAccount={virtualAccount}
+          onAccountCreated={(va) => {
+            setVirtualAccount(va)
+            fetchBalance()
+          }}
+        />
+      )}
     </div>
   )
 }
 
-function WebhookLog({ logs }) {
-  const bottomRef = useRef(null)
-
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [logs.length])
-
+function MiniStat({ icon: Icon, iconCls, label, value }) {
   return (
-    <section className="bg-[#1e1e1e] rounded-xl overflow-hidden border border-[#333] shadow-2xl">
-      {/* Terminal title bar */}
-      <div className="px-4 py-2 bg-[#2d2d2d] flex items-center justify-between border-b border-[#333]">
-        <div className="flex gap-2">
-          <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
-          <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
-          <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
-        </div>
-        <div className="text-[11px] font-mono text-[#888] uppercase tracking-widest">
-          Webhook Terminal v2.4
-        </div>
-        <span className="material-symbols-outlined text-[14px] text-[#888]">terminal</span>
+    <div className="bg-white rounded-xl border border-[#E5E7EB] p-4 flex items-center gap-4">
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${iconCls}`}>
+        <Icon size={20} />
       </div>
-
-      {/* Log body */}
-      <div
-        className="p-6 font-mono text-[13px] leading-relaxed overflow-y-auto max-h-[340px]"
-        style={{ scrollbarWidth: 'thin', scrollbarColor: '#494551 transparent' }}
-      >
-        {logs.map((log) => (
-          <div key={log.id} className="mb-6 animate-[fadeIn_0.3s_ease-out]">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[#b5cea8]">[{log.timestamp}]</span>
-              <span className={`font-bold ${log.typeColor}`}>{log.type}:</span>
-              <span className="text-[#ce9178]">{log.event}</span>
-            </div>
-            <pre className="mt-2 text-[#d4d4d4] bg-[#252526] p-3 rounded border border-[#333] overflow-x-auto whitespace-pre-wrap break-words">
-              {log.payload}
-            </pre>
-          </div>
-        ))}
-
-        {/* Live cursor */}
-        <div className="flex items-center gap-2 text-[#27c93f] animate-pulse">
-          <span className="w-2 h-2 rounded-full bg-[#27c93f] inline-block" />
-          <span>Listening for events...</span>
-        </div>
-
-        <div ref={bottomRef} />
+      <div>
+        <p className="text-[13px] text-[#6B7280]">{label}</p>
+        <p className="text-[18px] font-bold text-[#111827]">{value}</p>
       </div>
-    </section>
+    </div>
   )
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
+function SendMoneyModal({ onClose, onSuccess }) {
+  const [step, setStep] = useState(1)
+  const [bankCode, setBankCode] = useState('')
+  const [account, setAccount] = useState('')
+  const [amount, setAmount] = useState('')
+  const [remark, setRemark] = useState('')
+  const [bankSearch, setBankSearch] = useState('')
 
-export default function PaymentsPage() {
-  const [logs, setLogs] = useState(INITIAL_LOGS)
-  const [liveIndex, setLiveIndex] = useState(0)
+  const [lookupLoading, setLookupLoading] = useState(false)
+  const [lookupResult, setLookupResult] = useState(null)
+  const [lookupError, setLookupError] = useState('')
 
-  // Simulate live webhook events trickling in every 8 seconds
+  const [transferLoading, setTransferLoading] = useState(false)
+  const [transferResult, setTransferResult] = useState(null)
+  const [transferError, setTransferError] = useState('')
+
+  const filteredBanks = useMemo(() => {
+    if (!bankSearch) return NIGERIAN_BANKS
+    const q = bankSearch.toLowerCase()
+    return NIGERIAN_BANKS.filter((b) => b.name.toLowerCase().includes(q))
+  }, [bankSearch])
+
+  const selectedBank = NIGERIAN_BANKS.find((b) => b.code === bankCode)
+
   useEffect(() => {
-    if (liveIndex >= LIVE_EVENTS.length) return
-    const timer = setTimeout(() => {
-      setLogs((prev) => [...prev, LIVE_EVENTS[liveIndex]])
-      setLiveIndex((i) => i + 1)
-    }, 8000)
-    return () => clearTimeout(timer)
-  }, [liveIndex])
+    if (account.length === 10 && bankCode) {
+      handleLookup()
+    } else {
+      setLookupResult(null)
+      setLookupError('')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account, bankCode])
+
+  async function handleLookup() {
+    setLookupLoading(true)
+    setLookupError('')
+    setLookupResult(null)
+    try {
+      const res = await fetch('/api/wallet/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bankCode, accountNumber: account }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setLookupError(data.error?.message ?? 'Account lookup failed')
+        return
+      }
+      setLookupResult(data)
+    } catch {
+      setLookupError('Network error — try again')
+    } finally {
+      setLookupLoading(false)
+    }
+  }
+
+  async function handleTransfer(e) {
+    e.preventDefault()
+    if (!lookupResult) return
+
+    setTransferLoading(true)
+    setTransferError('')
+    try {
+      const res = await fetch('/api/wallet/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bankCode,
+          accountNumber: account,
+          accountName: lookupResult.accountName,
+          amount: parseFloat(amount),
+          remark: remark || undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setTransferError(data.error?.message ?? 'Transfer failed')
+        return
+      }
+      setTransferResult(data)
+      setStep(2)
+      onSuccess?.()
+    } catch {
+      setTransferError('Network error — try again')
+    } finally {
+      setTransferLoading(false)
+    }
+  }
 
   return (
-    <main className="pt-24 px-4 md:px-6 max-w-[1280px] mx-auto space-y-6 pb-32">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
+          <h3 className="text-[17px] font-semibold text-[#111827]">
+            {step === 1 ? 'Send Money' : 'Transfer Initiated'}
+          </h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F3F4F6] transition-colors">
+            <HiOutlineXMark size={20} className="text-[#6B7280]" />
+          </button>
+        </div>
 
-      {/* Page Header */}
-      <section>
-        <h1 className="text-headline-lg font-bold text-on-background">Squad Payments</h1>
-        <p className="text-body-md text-on-surface-variant">
-          Real-time ledger and transaction processing terminal.
-        </p>
-      </section>
+        {step === 1 ? (
+          <form onSubmit={handleTransfer} className="p-6 space-y-4">
+            {/* Bank selector */}
+            <div>
+              <label className="block text-[14px] font-medium text-[#111827] mb-1.5">Bank</label>
+              <div className="relative">
+                <div className="flex items-center border border-[#D1D5DB] rounded-xl overflow-hidden focus-within:ring-2 focus-within:ring-primary/20 focus-within:border-primary">
+                  <HiOutlineMagnifyingGlass size={16} className="ml-3 text-[#9CA3AF] shrink-0" />
+                  <input
+                    type="text"
+                    placeholder="Search bank..."
+                    value={selectedBank ? selectedBank.name : bankSearch}
+                    onChange={(e) => {
+                      setBankSearch(e.target.value)
+                      setBankCode('')
+                    }}
+                    onFocus={() => {
+                      if (selectedBank) {
+                        setBankSearch(selectedBank.name)
+                        setBankCode('')
+                      }
+                    }}
+                    className="w-full px-3 py-3 text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none"
+                  />
+                </div>
+                {!bankCode && bankSearch && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-[#E5E7EB] rounded-xl shadow-lg z-10 max-h-48 overflow-y-auto">
+                    {filteredBanks.length === 0 ? (
+                      <p className="px-4 py-3 text-[13px] text-[#9CA3AF]">No bank found</p>
+                    ) : (
+                      filteredBanks.map((b) => (
+                        <button
+                          key={b.code}
+                          type="button"
+                          onClick={() => {
+                            setBankCode(b.code)
+                            setBankSearch('')
+                          }}
+                          className="w-full text-left px-4 py-2.5 text-[14px] text-[#111827] hover:bg-[#F3F4F6] transition-colors"
+                        >
+                          {b.name}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
 
-      {/* Stat Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {STAT_CARDS.map((card) => (
-          <StatCard key={card.id} card={card} />
-        ))}
-      </div>
+            {/* Account number */}
+            <div>
+              <label className="block text-[14px] font-medium text-[#111827] mb-1.5">Account number</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                maxLength={10}
+                placeholder="0123456789"
+                value={account}
+                onChange={(e) => setAccount(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                className="w-full px-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+              {lookupLoading && (
+                <p className="mt-1 text-[12px] text-[#6B7280] flex items-center gap-1">
+                  <HiOutlineArrowPath size={12} className="animate-spin" /> Verifying account...
+                </p>
+              )}
+              {lookupResult && (
+                <p className="mt-1 text-[12px] text-[#059669] font-medium flex items-center gap-1">
+                  <HiOutlineCheckCircle size={14} /> {lookupResult.accountName}
+                </p>
+              )}
+              {lookupError && (
+                <p className="mt-1 text-[12px] text-[#DC2626]">{lookupError}</p>
+              )}
+            </div>
 
-      {/* Transaction Ledger */}
-      <section className="bg-surface-container-lowest rounded-xl border border-outline-variant overflow-hidden">
-        {/* Ledger header */}
-        <div className="px-6 py-4 border-b border-outline-variant flex justify-between items-center bg-surface-container-low">
-          <h2 className="text-headline-sm font-semibold text-on-background flex items-center gap-2">
-            <span className="material-symbols-outlined text-primary text-[20px]">receipt_long</span>
-            Transaction Ledger
-          </h2>
-          <div className="flex gap-1">
+            {/* Amount */}
+            <div>
+              <label className="block text-[14px] font-medium text-[#111827] mb-1.5">Amount (₦)</label>
+              <input
+                type="number"
+                placeholder="0.00"
+                min="1"
+                step="0.01"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                className="w-full px-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
+
+            {/* Remark */}
+            <div>
+              <label className="block text-[14px] font-medium text-[#111827] mb-1.5">Remark (optional)</label>
+              <input
+                type="text"
+                placeholder="Payment for..."
+                value={remark}
+                onChange={(e) => setRemark(e.target.value)}
+                maxLength={100}
+                className="w-full px-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+              />
+            </div>
+
+            {transferError && (
+              <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-xl flex items-start gap-2">
+                <HiOutlineXCircle size={16} className="text-[#DC2626] mt-0.5 shrink-0" />
+                <p className="text-[13px] text-[#991B1B]">{transferError}</p>
+              </div>
+            )}
+
             <button
-              id="ledger-filter"
-              className="p-2 hover:bg-surface-variant rounded-full transition-colors"
-              title="Filter"
+              type="submit"
+              disabled={!bankCode || !lookupResult || !amount || transferLoading}
+              className="w-full py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2"
             >
-              <span className="material-symbols-outlined text-[20px] text-on-surface-variant">filter_list</span>
+              {transferLoading ? (
+                <>
+                  <HiOutlineArrowPath size={16} className="animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>Send {amount ? formatNaira(parseFloat(amount)) : '₦0.00'}</>
+              )}
             </button>
-            <button
-              id="ledger-download"
-              className="p-2 hover:bg-surface-variant rounded-full transition-colors"
-              title="Download"
-            >
-              <span className="material-symbols-outlined text-[20px] text-on-surface-variant">download</span>
+          </form>
+        ) : (
+          <div className="p-6 text-center">
+            <div className="w-16 h-16 rounded-full bg-[#ECFDF5] flex items-center justify-center mx-auto mb-4">
+              <HiOutlineCheckCircle size={32} className="text-[#059669]" />
+            </div>
+            <p className="text-[20px] font-bold text-[#111827] mb-1">{formatNaira(transferResult?.amount ?? 0)}</p>
+            <p className="text-[14px] text-[#6B7280] mb-1">
+              Sent to {transferResult?.accountName}
+            </p>
+            <p className="text-[12px] text-[#9CA3AF] mb-1">
+              {transferResult?.accountNumber} • {transferResult?.destinationBank ?? selectedBank?.name}
+            </p>
+            <p className="text-[12px] text-[#9CA3AF] mb-6">
+              Ref: {transferResult?.transactionReference}
+            </p>
+            <button onClick={onClose} className="w-full py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 transition-all">
+              Done
             </button>
           </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ReceiveModal({ onClose, virtualAccount, onAccountCreated }) {
+  const [copied, setCopied] = useState(false)
+  const [setting, setSetting] = useState(false)
+  const [setupError, setSetupError] = useState('')
+  const [beneficiaryAccount, setBeneficiaryAccount] = useState('')
+
+  const acctNo = virtualAccount?.accountNumber ?? '—'
+  const bankName = virtualAccount?.bankName ?? 'GTBank'
+
+  function handleCopy() {
+    if (!virtualAccount) return
+    navigator.clipboard.writeText(acctNo)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  async function handleSetup() {
+    setSetting(true)
+    setSetupError('')
+    try {
+      const res = await fetch('/api/wallet/setup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...(beneficiaryAccount && { beneficiaryAccount }),
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        setSetupError(data.error?.message ?? 'Setup failed')
+        return
+      }
+      onAccountCreated?.(data.virtualAccount)
+    } catch {
+      setSetupError('Network error — try again')
+    } finally {
+      setSetting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#E5E7EB]">
+          <h3 className="text-[17px] font-semibold text-[#111827]">Receive Payment</h3>
+          <button onClick={onClose} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-[#F3F4F6] transition-colors">
+            <HiOutlineXMark size={20} className="text-[#6B7280]" />
+          </button>
         </div>
 
-        {/* Table — scrollable on mobile */}
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse min-w-[600px]">
-            <thead className="bg-surface-container text-on-surface-variant text-label-md uppercase">
-              <tr>
-                <th className="px-6 py-3 font-semibold">Transaction ID</th>
-                <th className="px-6 py-3 font-semibold">Date</th>
-                <th className="px-6 py-3 font-semibold">Recipient</th>
-                <th className="px-6 py-3 font-semibold text-right">Amount</th>
-                <th className="px-6 py-3 font-semibold text-center">Status</th>
-                <th className="px-6 py-3" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-outline-variant text-body-sm">
-              {LEDGER_ROWS.map((row) => (
-                <tr
-                  key={row.id}
-                  className="hover:bg-surface-container-low transition-colors"
-                >
-                  <td className="px-6 py-4 font-mono text-primary font-bold">{row.id}</td>
-                  <td className="px-6 py-4 text-on-surface-variant">{row.date}</td>
-                  <td className="px-6 py-4 font-medium text-on-surface">{row.recipient}</td>
-                  <td className="px-6 py-4 text-right font-bold text-on-surface">{row.amount}</td>
-                  <td className="px-6 py-4 text-center">{statusBadge(row.status)}</td>
-                  <td className="px-6 py-4 text-right">
-                    <button className="hover:bg-surface-container-high rounded-full p-1 transition-colors">
-                      <span className="material-symbols-outlined text-outline text-[20px]">
-                        more_vert
-                      </span>
+        <div className="p-6">
+          {virtualAccount ? (
+            <>
+              <p className="text-[13px] text-[#6B7280] mb-4">Share your account details to receive payments</p>
+
+              <div className="bg-[#F9FAFB] border border-[#E5E7EB] rounded-xl p-5 space-y-4">
+                <div>
+                  <p className="text-[12px] text-[#9CA3AF] uppercase tracking-wider mb-1">Bank Name</p>
+                  <p className="text-[15px] font-semibold text-[#111827]">{bankName}</p>
+                </div>
+                <div>
+                  <p className="text-[12px] text-[#9CA3AF] uppercase tracking-wider mb-1">Account Number</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-[22px] font-bold text-[#111827] tracking-wide">{acctNo}</p>
+                    <button onClick={handleCopy} className="p-1.5 rounded-lg hover:bg-[#E5E7EB] transition-colors" title="Copy">
+                      {copied ? <HiOutlineCheckCircle size={18} className="text-[#059669]" /> : <HiOutlineClipboard size={18} className="text-[#6B7280]" />}
                     </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
+                  </div>
+                </div>
+                {virtualAccount.accountName && (
+                  <div>
+                    <p className="text-[12px] text-[#9CA3AF] uppercase tracking-wider mb-1">Account Name</p>
+                    <p className="text-[15px] font-semibold text-[#111827]">{virtualAccount.accountName}</p>
+                  </div>
+                )}
+              </div>
 
-      {/* Webhook Terminal */}
-      <WebhookLog logs={logs} />
-    </main>
+              <div className="mt-4 p-3 bg-[#FFF7ED] border border-[#FED7AA] rounded-xl flex items-start gap-2.5">
+                <HiOutlineExclamationCircle size={18} className="text-[#D97706] mt-0.5 shrink-0" />
+                <p className="text-[13px] text-[#92400E]">Transfers typically arrive within 1–5 minutes during business hours.</p>
+              </div>
+            </>
+          ) : (
+            <div className="py-4">
+              <div className="text-center mb-5">
+                <HiOutlineExclamationCircle size={32} className="mx-auto text-[#D97706] mb-3" />
+                <p className="text-[14px] font-medium text-[#111827] mb-1">No virtual account found</p>
+                <p className="text-[13px] text-[#6B7280]">
+                  Set up your virtual account to start receiving payments.
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-[14px] font-medium text-[#111827] mb-1.5">
+                    Settlement account (GTBank)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={10}
+                    placeholder="10-digit GTBank account number"
+                    value={beneficiaryAccount}
+                    onChange={(e) => setBeneficiaryAccount(e.target.value.replace(/\D/g, '').slice(0, 10))}
+                    className="w-full px-4 py-3 bg-white border border-[#D1D5DB] rounded-xl text-[15px] text-[#111827] placeholder:text-[#9CA3AF] focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all"
+                  />
+                  <p className="text-[12px] text-[#9CA3AF] mt-1">
+                    Money received will be settled into this GTBank account. If left empty, it goes to your Squad wallet (T+1).
+                  </p>
+                </div>
+
+                {setupError && (
+                  <div className="p-3 bg-[#FEF2F2] border border-[#FECACA] rounded-xl flex items-start gap-2">
+                    <HiOutlineXCircle size={16} className="text-[#DC2626] mt-0.5 shrink-0" />
+                    <p className="text-[13px] text-[#991B1B]">{setupError}</p>
+                  </div>
+                )}
+
+                <button
+                  onClick={handleSetup}
+                  disabled={setting}
+                  className="w-full py-3 bg-primary text-white text-[14px] font-semibold rounded-xl hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                >
+                  {setting ? (
+                    <>
+                      <HiOutlineArrowPath size={16} className="animate-spin" />
+                      Creating account...
+                    </>
+                  ) : (
+                    'Create Virtual Account'
+                  )}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   )
 }

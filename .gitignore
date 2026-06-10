@@ -16,10 +16,11 @@
 # next.js
 /.next/
 /out/
-
+/tempapp/
 # production
 /build
-
+/squad docs/
+PRD.md
 # misc
 .DS_Store
 *.pem

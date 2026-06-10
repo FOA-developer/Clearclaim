@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+html {
+  scroll-behavior: smooth;
+}
+
 @theme {
   /* Colors */
   --color-surface-container-lowest: #ffffff;
@@ -62,21 +66,25 @@
 
 /* Brand Gradient Classes */
 .brand-gradient {
-  background: linear-gradient(90deg, #7B1FA2 0%, #C2185B 50%, #F4511E 100%);
+  background: linear-gradient(90deg, #7b1fa2 0%, #c2185b 50%, #f4511e 100%);
 }
 
 .brand-gradient-text {
-  background: linear-gradient(90deg, #7B1FA2 0%, #C2185B 50%, #F4511E 100%);
+  background: linear-gradient(90deg, #7b1fa2 0%, #c2185b 50%, #f4511e 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
 
 .brand-gradient-border {
-  border-image: linear-gradient(90deg, #7B1FA2, #F4511E) 1;
+  border-image: linear-gradient(90deg, #7b1fa2, #f4511e) 1;
 }
 
 .material-symbols-outlined {
-  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-variation-settings:
+    "FILL" 0,
+    "wght" 400,
+    "GRAD" 0,
+    "opsz" 24;
 }
 
 .radial-glow {
@@ -88,12 +96,28 @@
   );
 }
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
 }
 
 main {
   animation: fadeIn 0.4s ease-in-out;
+}
+
+/* Invoice list: scroll without showing scrollbars (wheel / trackpad still works) */
+.invoice-table-scroll {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.invoice-table-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 .shimmer {
@@ -103,6 +127,10 @@ main {
 }
 
 @keyframes shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
